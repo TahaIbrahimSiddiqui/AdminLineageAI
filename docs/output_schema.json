@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0.0",
+  "crosswalk_columns": [
+    "from_name",
+    "to_name",
+    "from_canonical_name",
+    "to_canonical_name",
+    "from_id",
+    "to_id",
+    "score",
+    "link_type",
+    "evidence",
+    "country",
+    "year_from",
+    "year_to",
+    "run_id",
+    "from_key",
+    "to_key",
+    "constraints_passed"
+  ],
+  "link_type_enum": [
+    "rename",
+    "split",
+    "merge",
+    "transfer",
+    "no_match",
+    "unknown"
+  ],
+  "notes": {
+    "anchor_columns": "Appended dynamically when provided",
+    "constraints_passed": "JSON object with candidate_membership and anchor_match"
+  }
+}
