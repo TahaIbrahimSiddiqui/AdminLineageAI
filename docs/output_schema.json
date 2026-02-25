@@ -26,8 +26,49 @@
     "no_match",
     "unknown"
   ],
+  "column_definitions": {
+    "from_name": "Raw source name from period A.",
+    "to_name": "Raw target name from period B; nullable for no-match/unknown.",
+    "from_canonical_name": "Normalized source name used for lexical matching.",
+    "to_canonical_name": "Normalized target name used for lexical matching.",
+    "from_id": "Source ID from user column or internal fallback key.",
+    "to_id": "Target ID from user column or internal fallback key.",
+    "score": "Model confidence score in [0,1].",
+    "link_type": "One of rename, split, merge, transfer, no_match, unknown.",
+    "evidence": "Short non-chain-of-thought rationale summary.",
+    "country": "Country label provided in request.",
+    "year_from": "Period A label from request.",
+    "year_to": "Period B label from request.",
+    "run_id": "Deterministic identifier for this run.",
+    "from_key": "Internal stable source key.",
+    "to_key": "Internal stable target key; nullable.",
+    "constraints_passed": "JSON object of boolean checks (candidate_membership, anchor_match).",
+    "<anchor columns>": "User-provided anchor context columns, appended dynamically.",
+    "review_flags": "List of quality flags for manual review.",
+    "review_reason": "Comma-joined summary of review flags."
+  },
+  "required_output_columns": [
+    "from_name",
+    "from_canonical_name",
+    "from_id",
+    "score",
+    "link_type",
+    "country",
+    "year_from",
+    "year_to",
+    "run_id",
+    "from_key",
+    "constraints_passed"
+  ],
+  "nullable_columns": [
+    "to_name",
+    "to_canonical_name",
+    "to_id",
+    "to_key"
+  ],
   "notes": {
-    "anchor_columns": "Appended dynamically when provided",
-    "constraints_passed": "JSON object with candidate_membership and anchor_match"
+    "anchor_columns": "Appended dynamically when provided in request.anchor_cols.",
+    "many_to_many": "Multiple rows per from_key and per to_key are allowed.",
+    "resume_source": "links_raw.jsonl is the resumability source of truth in each run directory."
   }
 }
