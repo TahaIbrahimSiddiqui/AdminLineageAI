@@ -13,7 +13,9 @@ def build_batch_prompt(
     country: str,
     year_from: int | str,
     year_to: int | str,
-    anchor_cols: list[str],
+    exact_match: list[str],
+    relationship: str,
+    include_reason: bool,
     batch_items: list[dict[str, Any]],
 ) -> str:
     """Create strict JSON-only adjudication prompt for one batch."""
@@ -23,21 +25,53 @@ def build_batch_prompt(
         "country": country,
         "year_from": year_from,
         "year_to": year_to,
-        "anchor_columns": anchor_cols,
+        "exact_match": exact_match,
+        "requested_relationship": relationship,
+        "include_reason": include_reason,
         "items": batch_items,
     }
+
+    response_fields = (
+        '{"decisions":[{"from_key":"...","links":[{"to_key":"candidate_to_key_or_null",'
+        '"link_type":"rename|split|merge|transfer|no_match|unknown",'
+        '"relationship":"father_to_father|father_to_child|child_to_father|child_to_child|unknown",'
+        '"score":0.0,"evidence":"..."}]}]}'
+    )
+    if include_reason:
+        response_fields = (
+            '{"decisions":[{"from_key":"...","links":[{"to_key":"candidate_to_key_or_null",'
+            '"link_type":"rename|split|merge|transfer|no_match|unknown",'
+            '"relationship":"father_to_father|father_to_child|child_to_father|child_to_child|unknown",'
+            '"score":0.0,"evidence":"...","reason":"..."}]}]}'
+        )
+
+    reason_rule = (
+        "8) Include a short `reason` field with 1-3 factual sentences. "
+        "It must explain the match without chain-of-thought.\n"
+        if include_reason
+        else "8) Do not include a `reason` field in the JSON.\n"
+    )
 
     return (
         "You are an administrative evolution key adjudication engine.\n"
         "Task: choose mappings from period A units to period B candidates.\n"
         "Rules:\n"
         "1) Use only the provided names and hierarchical context.\n"
-        "2) Respect anchor context exactly.\n"
+        "2) Respect the exact_match context exactly.\n"
         "3) Return strict JSON only (no markdown, no prose).\n"
-        "4) Many-to-many links are allowed (split/merge/transfer/rename/no_match/unknown).\n"
-        "5) Evidence must be short factual summaries (1-3 short bullet-like sentences), no chain-of-thought.\n\n"
+        "4) Return one decision for every input from_key.\n"
+        "5) `to_key` must be one of the supplied candidates for that from_key or null.\n"
+        "6) Many-to-many links are allowed. "
+        "Use rename, split, merge, or transfer only when supported by the "
+        "candidate list and context. Prefer unknown or no_match instead of guessing.\n"
+        "7) `relationship` is separate from `link_type`. "
+        "Use one of father_to_father, father_to_child, child_to_father, "
+        "child_to_child, or unknown. If requested_relationship is not auto, use that value "
+        "for matched links. For unknown or no_match, use relationship=unknown.\n"
+        f"{reason_rule}"
+        "Evidence must be short factual summaries, no chain-of-thought.\n\n"
         "Required response JSON:\n"
-        "{\"decisions\":[{\"from_key\":\"...\",\"links\":[{\"to_key\":\"...\",\"link_type\":\"rename|split|merge|transfer|no_match|unknown\",\"score\":0.0,\"evidence\":\"...\"}]}]}\n\n"
+        f"{response_fields}\n\n"
         "INPUT_PAYLOAD_JSON:\n"
         f"{json.dumps(payload, ensure_ascii=True)}"
     )

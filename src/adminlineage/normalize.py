@@ -8,7 +8,6 @@ from collections import Counter
 
 import pandas as pd
 
-
 _PUNCT_RE = re.compile(r"[^\w\s]", flags=re.UNICODE)
 _SPACE_RE = re.compile(r"\s+")
 

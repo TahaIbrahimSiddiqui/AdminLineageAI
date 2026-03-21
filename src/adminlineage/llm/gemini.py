@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 
 from ..prompts import build_repair_prompt
 from ..schema import PROMPT_SCHEMA_VERSION
-from ..utils import now_iso
+from ..utils import load_env_file, now_iso
 from .base import BaseLLMClient, LLMServiceError, TransientLLMError
 from .cache import SQLiteCache
 from .retry import retry_call
@@ -28,6 +29,7 @@ class GeminiClient(BaseLLMClient):
         base_delay_seconds: float = 1.0,
         max_delay_seconds: float = 20.0,
         jitter_seconds: float = 0.2,
+        env_search_dir: str | Path | None = None,
     ) -> None:
         self.api_key_env = api_key_env
         self.cache = cache
@@ -35,11 +37,18 @@ class GeminiClient(BaseLLMClient):
         self.base_delay_seconds = base_delay_seconds
         self.max_delay_seconds = max_delay_seconds
         self.jitter_seconds = jitter_seconds
+        self.env_search_dir = env_search_dir
+        self._env_loaded = False
 
     def _call_model(self, prompt: str, *, model: str, temperature: float, seed: int) -> str:
+        if not self._env_loaded:
+            load_env_file(self.env_search_dir)
+            self._env_loaded = True
         api_key = os.getenv(self.api_key_env)
         if not api_key:
-            raise LLMServiceError(f"Missing Gemini API key in environment variable {self.api_key_env}")
+            raise LLMServiceError(
+                f"Missing Gemini API key in environment variable {self.api_key_env}"
+            )
 
         try:
             from google import genai

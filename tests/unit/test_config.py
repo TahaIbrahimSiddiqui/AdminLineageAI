@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from adminlineage.config import load_config
 
@@ -16,7 +17,9 @@ request:
   year_from: 1951
   year_to: 2001
   map_col_from: subdistrict
-  anchor_cols: [state, district]
+  exact_match: [state, district]
+  relationship: father_to_child
+  reason: true
 data:
   mode: files
   from_path: examples/data/from_units.csv
@@ -27,7 +30,7 @@ pipeline:
   batch_size: 5
   max_candidates: 10
 output:
-  directory: outputs
+  write_parquet: false
 """.strip(),
         encoding="utf-8",
     )
@@ -35,6 +38,10 @@ output:
     cfg = load_config(cfg_path)
     assert cfg.request.country == "India"
     assert cfg.data.mode == "files"
+    assert cfg.request.exact_match == ["state", "district"]
+    assert cfg.request.relationship == "father_to_child"
+    assert cfg.request.reason is True
+    assert cfg.source_dir == tmp_path.resolve()
 
 
 def test_load_config_invalid_files_mode(tmp_path: Path):
@@ -53,5 +60,30 @@ data:
         encoding="utf-8",
     )
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
+        load_config(cfg_path)
+
+
+def test_load_config_rejects_removed_fields(tmp_path: Path):
+    cfg_path = tmp_path / "removed.yml"
+    cfg_path.write_text(
+        """
+request:
+  country: India
+  year_from: 1951
+  year_to: 2001
+  map_col_from: subdistrict
+  anchor_cols: [state, district]
+data:
+  mode: files
+  from_path: from.csv
+  to_path: to.csv
+  aliases_path: aliases.csv
+output:
+  directory: outputs
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError):
         load_config(cfg_path)

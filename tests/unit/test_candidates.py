@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pandas as pd
 
-from adminlineage.candidates import build_alias_lookup, generate_shortlist
+from adminlineage.candidates import generate_shortlist
 from adminlineage.normalize import add_normalized_columns
 
 
-def test_alias_boost_in_shortlist(sample_aliases):
+def test_generate_shortlist_prefers_best_lexical_match():
     df_from = pd.DataFrame(
         {
             "state": ["S1"],
@@ -30,15 +30,12 @@ def test_alias_boost_in_shortlist(sample_aliases):
     from_norm = add_normalized_columns(df_from, "subdistrict", "from")
     to_norm = add_normalized_columns(df_to, "subdistrict", "to")
 
-    lookup = build_alias_lookup(sample_aliases, ["state", "district"])
     shortlist = generate_shortlist(
         from_norm.iloc[0],
         to_norm,
         max_candidates=5,
-        alias_lookup=lookup,
-        anchor_cols=["state", "district"],
     )
 
     assert shortlist[0]["to_key"] == "to_0"
-    assert shortlist[0]["alias_hit"] is True
-    assert shortlist[0]["score"] >= 0.95
+    assert shortlist[0]["score"] >= shortlist[1]["score"]
+    assert shortlist[0]["token_jaccard"] >= shortlist[1]["token_jaccard"]

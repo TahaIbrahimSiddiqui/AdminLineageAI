@@ -2,23 +2,25 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from .candidates import build_alias_lookup, generate_shortlist
+from .candidates import generate_shortlist
+from .io import append_jsonl, read_jsonl, write_json
 from .llm import BaseLLMClient, GeminiClient, SQLiteCache
 from .logging_utils import setup_logger
-from .models import LLMBatchResponse, MappingRequest
+from .models import MappingRequest, RequestRelationshipType, get_batch_response_model
 from .normalize import add_normalized_columns
 from .prompts import build_batch_prompt
 from .review import apply_global_flags, build_review_queue, coverage_summary, summarize_counts
-from .schema import CROSSWALK_BASE_COLUMNS
+from .schema import CROSSWALK_BASE_COLUMNS, RELATIONSHIP_TYPES
 from .utils import build_run_id, chunked, ensure_dir, now_iso, sanitize_name
 from .validation import validate_inputs_data
-from .io import append_jsonl, read_jsonl, write_json
+
+_MATCHED_LINK_TYPES = {"rename", "split", "merge", "transfer"}
+_VALID_RELATIONSHIPS = set(RELATIONSHIP_TYPES)
 
 
 def _default_run_name(country: str, year_from: int | str, year_to: int | str, map_col: str) -> str:
@@ -34,6 +36,7 @@ def _build_llm_client(
     retry_base_delay: float,
     retry_max_delay: float,
     retry_jitter: float,
+    env_search_dir: str | Path | None,
 ) -> BaseLLMClient:
     cache = SQLiteCache(cache_path) if cache_enabled else None
     return GeminiClient(
@@ -43,6 +46,7 @@ def _build_llm_client(
         base_delay_seconds=retry_base_delay,
         max_delay_seconds=retry_max_delay,
         jitter_seconds=retry_jitter,
+        env_search_dir=env_search_dir,
     )
 
 
@@ -54,7 +58,7 @@ def _prepare_workframes(
     map_col_to: str,
     id_col_from: str | None,
     id_col_to: str | None,
-    anchor_cols: list[str],
+    exact_match: list[str],
     extra_context_cols: list[str],
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     df_from_work = df_from.reset_index(drop=True).copy()
@@ -68,7 +72,7 @@ def _prepare_workframes(
     )
     df_to_work["_to_id"] = df_to_work[id_col_to].astype(str) if id_col_to else df_to_work["_to_key"]
 
-    for col in anchor_cols:
+    for col in exact_match:
         if col not in df_from_work.columns:
             df_from_work[col] = None
         if col not in df_to_work.columns:
@@ -85,23 +89,16 @@ def _prepare_workframes(
     return df_from_work, df_to_work
 
 
-def _group_key_from_row(row: pd.Series, anchor_cols: list[str]) -> tuple[Any, ...] | str:
-    if not anchor_cols:
-        return "__all__"
-    return tuple(row[col] for col in anchor_cols)
-
-
 def _build_candidate_maps(
     df_from_work: pd.DataFrame,
     df_to_work: pd.DataFrame,
     *,
-    anchor_cols: list[str],
+    exact_match: list[str],
     max_candidates: int,
-    alias_lookup: dict,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, tuple[Any, ...] | str]]:
     to_groups: dict[tuple[Any, ...] | str, pd.DataFrame] = {}
-    if anchor_cols:
-        for key, group in df_to_work.groupby(anchor_cols, dropna=False):
+    if exact_match:
+        for key, group in df_to_work.groupby(exact_match, dropna=False):
             to_groups[key if isinstance(key, tuple) else (key,)] = group
     else:
         to_groups["__all__"] = df_to_work
@@ -110,24 +107,37 @@ def _build_candidate_maps(
     group_map: dict[str, tuple[Any, ...] | str] = {}
 
     for _, from_row in df_from_work.iterrows():
-        if anchor_cols:
-            raw_key = tuple(from_row[col] for col in anchor_cols)
-            group_key: tuple[Any, ...] | str = raw_key
+        if exact_match:
+            group_key: tuple[Any, ...] | str = tuple(from_row[col] for col in exact_match)
         else:
             group_key = "__all__"
 
         to_group = to_groups.get(group_key, df_to_work.iloc[0:0])
-        candidates = generate_shortlist(
+        candidate_map[from_row["_from_key"]] = generate_shortlist(
             from_row,
             to_group,
             max_candidates=max_candidates,
-            alias_lookup=alias_lookup,
-            anchor_cols=anchor_cols,
         )
-        candidate_map[from_row["_from_key"]] = candidates
         group_map[from_row["_from_key"]] = group_key
 
     return candidate_map, group_map
+
+
+def _final_relationship(
+    raw_relationship: Any,
+    *,
+    requested_relationship: RequestRelationshipType,
+    link_type: str,
+    to_key: str | None,
+) -> str:
+    if to_key is None or link_type not in _MATCHED_LINK_TYPES:
+        return "unknown"
+    if requested_relationship != "auto":
+        return requested_relationship
+    value = str(raw_relationship or "unknown")
+    if value in _VALID_RELATIONSHIPS:
+        return value
+    return "unknown"
 
 
 def preview_pipeline_plan(
@@ -139,16 +149,15 @@ def preview_pipeline_plan(
     year_to: int | str,
     map_col_from: str,
     map_col_to: str | None = None,
-    anchor_cols: list[str] | None = None,
+    exact_match: list[str] | None = None,
     id_col_from: str | None = None,
     id_col_to: str | None = None,
     extra_context_cols: list[str] | None = None,
-    aliases: pd.DataFrame | None = None,
     max_candidates: int = 15,
 ) -> dict[str, Any]:
     """Preview group sizes and candidate budgets without calling LLM."""
 
-    anchor_cols = anchor_cols or []
+    exact_match = exact_match or []
     extra_context_cols = extra_context_cols or []
     validation = validate_inputs_data(
         df_from,
@@ -156,10 +165,9 @@ def preview_pipeline_plan(
         country=country,
         map_col_from=map_col_from,
         map_col_to=map_col_to,
-        anchor_cols=anchor_cols,
+        exact_match=exact_match,
         id_col_from=id_col_from,
         id_col_to=id_col_to,
-        aliases=aliases,
     )
     if not validation["valid"]:
         return {
@@ -176,17 +184,15 @@ def preview_pipeline_plan(
         map_col_to=effective_map_col_to,
         id_col_from=id_col_from,
         id_col_to=id_col_to,
-        anchor_cols=anchor_cols,
+        exact_match=exact_match,
         extra_context_cols=extra_context_cols,
     )
 
-    alias_lookup = build_alias_lookup(aliases, anchor_cols)
     candidate_map, group_map = _build_candidate_maps(
         df_from_work,
         df_to_work,
-        anchor_cols=anchor_cols,
+        exact_match=exact_match,
         max_candidates=max_candidates,
-        alias_lookup=alias_lookup,
     )
 
     group_counts: dict[str, int] = {}
@@ -196,7 +202,9 @@ def preview_pipeline_plan(
 
     avg_candidates = 0.0
     if candidate_map:
-        avg_candidates = sum(len(c) for c in candidate_map.values()) / len(candidate_map)
+        avg_candidates = sum(len(candidates) for candidates in candidate_map.values()) / len(
+            candidate_map
+        )
 
     return {
         "valid": True,
@@ -205,7 +213,7 @@ def preview_pipeline_plan(
         "year_to": year_to,
         "from_rows": int(len(df_from_work)),
         "to_rows": int(len(df_to_work)),
-        "anchor_cols": anchor_cols,
+        "exact_match": exact_match,
         "groups": group_counts,
         "max_candidates": max_candidates,
         "avg_candidates": round(avg_candidates, 4),
@@ -222,17 +230,17 @@ def run_pipeline(
     year_to: int | str,
     map_col_from: str,
     map_col_to: str | None = None,
-    anchor_cols: list[str] | None = None,
+    exact_match: list[str] | None = None,
     id_col_from: str | None = None,
     id_col_to: str | None = None,
     extra_context_cols: list[str] | None = None,
-    aliases: pd.DataFrame | None = None,
+    relationship: RequestRelationshipType = "auto",
+    reason: bool = False,
     model: str = "gemini-2.5-pro",
     gemini_api_key_env: str = "GEMINI_API_KEY",
     batch_size: int = 25,
     max_candidates: int = 15,
-    resume_dir: str | Path = "outputs",
-    run_name: str | None = None,
+    output_dir: str | Path = "outputs",
     seed: int = 42,
     llm_client: BaseLLMClient | None = None,
     temperature: float = 0.0,
@@ -245,13 +253,13 @@ def run_pipeline(
     review_score_threshold: float = 0.6,
     output_write_csv: bool = True,
     output_write_parquet: bool = True,
-    output_write_jsonl: bool = True,
     loader_metadata: dict[str, Any] | None = None,
+    env_search_dir: str | Path | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Run the complete evolution-key pipeline and materialize output artifacts."""
 
     start_time = now_iso()
-    anchor_cols = anchor_cols or []
+    exact_match = exact_match or []
     extra_context_cols = extra_context_cols or []
     loader_metadata = loader_metadata or {}
 
@@ -261,10 +269,9 @@ def run_pipeline(
         country=country,
         map_col_from=map_col_from,
         map_col_to=map_col_to,
-        anchor_cols=anchor_cols,
+        exact_match=exact_match,
         id_col_from=id_col_from,
         id_col_to=id_col_to,
-        aliases=aliases,
     )
     if not validation["valid"]:
         raise ValueError("Invalid inputs: " + "; ".join(validation["errors"]))
@@ -274,23 +281,31 @@ def run_pipeline(
         country=country,
         year_from=year_from,
         year_to=year_to,
-        anchor_cols=anchor_cols,
+        exact_match=exact_match,
         map_col_from=map_col_from,
         map_col_to=map_col_to_effective,
+        relationship=relationship,
+        reason=reason,
         model=model,
         batch_size=batch_size,
         max_candidates=max_candidates,
         seed=seed,
     )
 
-    run_name_effective = run_name or _default_run_name(country, year_from, year_to, map_col_from)
-    base_dir = ensure_dir(resume_dir)
-    run_dir = ensure_dir(base_dir / run_name_effective)
+    run_name = _default_run_name(country, year_from, year_to, map_col_from)
+    base_dir = ensure_dir(output_dir)
+    run_dir = ensure_dir(base_dir / run_name)
     logger = setup_logger(run_dir)
 
     warnings = list(validation["warnings"])
     run_id = build_run_id(request.model_dump(), seed=seed)
-    logger.info("run_id=%s stage=start country=%s years=%s->%s", run_id, country, year_from, year_to)
+    logger.info(
+        "run_id=%s stage=start country=%s years=%s->%s",
+        run_id,
+        country,
+        year_from,
+        year_to,
+    )
 
     if llm_client is None:
         cache_path_obj = Path(cache_path)
@@ -304,6 +319,7 @@ def run_pipeline(
             retry_base_delay=retry_base_delay,
             retry_max_delay=retry_max_delay,
             retry_jitter=retry_jitter,
+            env_search_dir=env_search_dir,
         )
 
     df_from_work, df_to_work = _prepare_workframes(
@@ -313,19 +329,17 @@ def run_pipeline(
         map_col_to=map_col_to_effective,
         id_col_from=id_col_from,
         id_col_to=id_col_to,
-        anchor_cols=anchor_cols,
+        exact_match=exact_match,
         extra_context_cols=extra_context_cols,
     )
     from_lookup = df_from_work.set_index("_from_key", drop=False)
     to_lookup = df_to_work.set_index("_to_key", drop=False)
 
-    alias_lookup = build_alias_lookup(aliases, anchor_cols)
     candidate_map, _group_map = _build_candidate_maps(
         df_from_work,
         df_to_work,
-        anchor_cols=anchor_cols,
+        exact_match=exact_match,
         max_candidates=max_candidates,
-        alias_lookup=alias_lookup,
     )
 
     links_raw_path = run_dir / "links_raw.jsonl"
@@ -345,8 +359,7 @@ def run_pipeline(
         len(pending_from_keys),
     )
 
-    if not output_write_jsonl and links_raw_path.exists() and not pending_from_keys:
-        logger.info("run_id=%s stage=resume using existing raw links file", run_id)
+    response_model = get_batch_response_model(include_reason=reason)
 
     batch_index = 0
     for batch_keys in chunked(pending_from_keys, batch_size):
@@ -354,7 +367,7 @@ def run_pipeline(
         batch_items: list[dict[str, Any]] = []
         for from_key in batch_keys:
             from_row = from_lookup.loc[from_key]
-            anchors = {col: from_row[col] for col in anchor_cols}
+            exact_match_context = {col: from_row[col] for col in exact_match}
             extras = {col: from_row[col] for col in extra_context_cols}
 
             candidates = []
@@ -365,7 +378,7 @@ def run_pipeline(
                     "to_name": candidate["to_name"],
                     "to_canonical_name": candidate["to_canonical_name"],
                     "score": candidate["score"],
-                    "anchor_context": {col: to_row[col] for col in anchor_cols},
+                    "exact_match_context": {col: to_row[col] for col in exact_match},
                 }
                 if extra_context_cols:
                     candidate_payload["extra_context"] = {
@@ -377,7 +390,7 @@ def run_pipeline(
                 "from_key": from_key,
                 "from_name": from_row["_from_name_raw"],
                 "from_canonical_name": from_row["_from_canonical_name"],
-                "anchor_context": anchors,
+                "exact_match_context": exact_match_context,
                 "extra_context": extras,
                 "candidates": candidates,
             }
@@ -387,7 +400,9 @@ def run_pipeline(
             country=country,
             year_from=year_from,
             year_to=year_to,
-            anchor_cols=anchor_cols,
+            exact_match=exact_match,
+            relationship=relationship,
+            include_reason=reason,
             batch_items=batch_items,
         )
 
@@ -401,26 +416,28 @@ def run_pipeline(
         try:
             raw_response = llm_client.generate_json(
                 prompt=prompt,
-                schema=LLMBatchResponse,
+                schema=response_model,
                 model=model,
                 temperature=temperature,
                 seed=seed,
             )
-            parsed = LLMBatchResponse.model_validate(raw_response)
+            parsed = response_model.model_validate(raw_response)
             by_from = {decision.from_key: decision for decision in parsed.decisions}
 
             for from_key in batch_keys:
                 decision = by_from.get(from_key)
-                links = []
                 if decision is None:
                     links = [
                         {
                             "to_key": None,
                             "link_type": "unknown",
+                            "relationship": "unknown",
                             "score": 0.0,
                             "evidence": "LLM omitted this item in batch response.",
                         }
                     ]
+                    if reason:
+                        links[0]["reason"] = ""
                 else:
                     links = [link.model_dump() for link in decision.links]
                     if not links:
@@ -428,10 +445,13 @@ def run_pipeline(
                             {
                                 "to_key": None,
                                 "link_type": "no_match",
+                                "relationship": "unknown",
                                 "score": 0.0,
                                 "evidence": "No valid link selected by model.",
                             }
                         ]
+                        if reason:
+                            links[0]["reason"] = ""
 
                 append_jsonl(
                     links_raw_path,
@@ -474,7 +494,7 @@ def run_pipeline(
     rows: list[dict[str, Any]] = []
     for from_key in df_from_work["_from_key"].tolist():
         from_row = from_lookup.loc[from_key]
-        anchor_payload = {col: from_row[col] for col in anchor_cols}
+        exact_match_payload = {col: from_row[col] for col in exact_match}
 
         record = latest_success.get(from_key)
         links = record.get("links", []) if record else []
@@ -483,20 +503,39 @@ def run_pipeline(
                 {
                     "to_key": None,
                     "link_type": "unknown",
+                    "relationship": "unknown",
                     "score": 0.0,
                     "evidence": "No completed adjudication record.",
+                    "reason": "",
                 }
             ]
 
         allowed_to_keys = {item["to_key"] for item in candidate_map.get(from_key, [])}
 
         for link in links:
-            to_key = link.get("to_key")
+            raw_to_key = link.get("to_key")
+            candidate_membership = raw_to_key is None or raw_to_key in allowed_to_keys
+            to_key = raw_to_key if candidate_membership else None
             to_row = to_lookup.loc[to_key] if to_key in to_lookup.index else None
-            candidate_membership = to_key is None or to_key in allowed_to_keys
-            anchor_match = True
-            if to_row is not None and anchor_cols:
-                anchor_match = all(from_row[col] == to_row[col] for col in anchor_cols)
+
+            link_type = str(link.get("link_type", "unknown"))
+            score = float(link.get("score", 0.0))
+            evidence = str(link.get("evidence", "")).strip()
+            reason_text = str(link.get("reason", "")).strip() if reason else ""
+
+            if not candidate_membership:
+                link_type = "unknown"
+                score = 0.0
+                evidence = "Model selected a target outside the provided candidates."
+                if reason and not reason_text:
+                    reason_text = "The chosen target was not present in the candidate list."
+
+            if to_key is None and link_type in _MATCHED_LINK_TYPES:
+                link_type = "unknown"
+
+            exact_match_passed = True
+            if to_row is not None and exact_match:
+                exact_match_passed = all(from_row[col] == to_row[col] for col in exact_match)
 
             row = {
                 "from_name": from_row["_from_name_raw"],
@@ -505,9 +544,16 @@ def run_pipeline(
                 "to_canonical_name": to_row["_to_canonical_name"] if to_row is not None else None,
                 "from_id": from_row["_from_id"],
                 "to_id": to_row["_to_id"] if to_row is not None else None,
-                "score": float(link.get("score", 0.0)),
-                "link_type": str(link.get("link_type", "unknown")),
-                "evidence": str(link.get("evidence", "")).strip()[:400],
+                "score": score,
+                "link_type": link_type,
+                "relationship": _final_relationship(
+                    link.get("relationship"),
+                    requested_relationship=relationship,
+                    link_type=link_type,
+                    to_key=to_key,
+                ),
+                "evidence": evidence[:400],
+                "reason": reason_text[:800] if reason else "",
                 "country": country,
                 "year_from": year_from,
                 "year_to": year_to,
@@ -516,44 +562,58 @@ def run_pipeline(
                 "to_key": to_key,
                 "constraints_passed": {
                     "candidate_membership": candidate_membership,
-                    "anchor_match": anchor_match,
+                    "exact_match": exact_match_passed,
                 },
             }
-            row.update(anchor_payload)
+            row.update(exact_match_payload)
             rows.append(row)
 
     crosswalk = pd.DataFrame(rows)
     for col in CROSSWALK_BASE_COLUMNS:
         if col not in crosswalk.columns:
-            crosswalk[col] = None
+            crosswalk[col] = "" if col in {"evidence", "reason"} else None
 
     crosswalk = apply_global_flags(crosswalk, low_score_threshold=review_score_threshold)
+    exact_match_order = exact_match.copy()
+    preferred_order = CROSSWALK_BASE_COLUMNS + exact_match_order + ["review_flags", "review_reason"]
+    ordered_cols = [col for col in preferred_order if col in crosswalk.columns] + [
+        col for col in crosswalk.columns if col not in preferred_order
+    ]
+    crosswalk = crosswalk[ordered_cols]
     review_queue = build_review_queue(crosswalk)
+
+    csv_path = run_dir / "evolution_key.csv"
+    parquet_path = run_dir / "evolution_key.parquet"
+    review_path = run_dir / "review_queue.csv"
+    metadata_path = run_dir / "run_metadata.json"
+
+    artifacts: dict[str, str] = {
+        "run_dir": str(run_dir),
+        "links_raw_jsonl": str(links_raw_path),
+        "review_queue_csv": str(review_path),
+        "run_metadata_json": str(metadata_path),
+    }
+    if output_write_csv:
+        artifacts["evolution_key_csv"] = str(csv_path)
 
     metadata: dict[str, Any] = {
         "run_id": run_id,
         "schema_version": request.schema_version,
-        "output_schema_version": "1.0.0",
+        "output_schema_version": "2.0.0",
         "request": request.model_dump(),
         "counts": summarize_counts(crosswalk),
-        "coverage_by_group": coverage_summary(crosswalk, anchor_cols),
+        "coverage_by_group": coverage_summary(crosswalk, exact_match),
         "warnings": warnings,
-        "artifacts": {
-            "run_dir": str(run_dir),
-            "links_raw_jsonl": str(links_raw_path),
-        },
+        "artifacts": artifacts,
         "loader_metadata": loader_metadata,
         "started_at": start_time,
         "finished_at": now_iso(),
     }
 
     if output_write_csv:
-        csv_path = run_dir / "evolution_key.csv"
         crosswalk.to_csv(csv_path, index=False)
-        metadata["artifacts"]["evolution_key_csv"] = str(csv_path)
 
     if output_write_parquet:
-        parquet_path = run_dir / "evolution_key.parquet"
         try:
             crosswalk.to_parquet(parquet_path, index=False)
             metadata["artifacts"]["evolution_key_parquet"] = str(parquet_path)
@@ -562,21 +622,8 @@ def run_pipeline(
             warnings.append(warning)
             logger.warning("run_id=%s stage=output %s", run_id, warning)
 
-    review_path = run_dir / "review_queue.csv"
     review_queue.to_csv(review_path, index=False)
-    metadata["artifacts"]["review_queue_csv"] = str(review_path)
-
-    metadata_path = run_dir / "run_metadata.json"
     write_json(metadata_path, metadata)
-    metadata["artifacts"]["run_metadata_json"] = str(metadata_path)
 
     logger.info("run_id=%s stage=finish rows=%d", run_id, len(crosswalk))
-
-    anchor_cols_order = anchor_cols.copy()
-    preferred_order = CROSSWALK_BASE_COLUMNS + anchor_cols_order + ["review_flags", "review_reason"]
-    ordered_cols = [col for col in preferred_order if col in crosswalk.columns] + [
-        col for col in crosswalk.columns if col not in preferred_order
-    ]
-    crosswalk = crosswalk[ordered_cols]
-
     return crosswalk, metadata

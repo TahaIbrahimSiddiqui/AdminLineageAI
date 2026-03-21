@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 
 from .config import load_config
 from .export import export_crosswalk_file
@@ -38,7 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _run_from_config(config_path: str) -> int:
     cfg = load_config(config_path)
-    loaded = load_frames(cfg, cwd=Path.cwd())
+    loaded = load_frames(cfg)
 
     llm_client = None
     if cfg.llm.provider == "mock":
@@ -52,17 +51,16 @@ def _run_from_config(config_path: str) -> int:
         year_to=cfg.request.year_to,
         map_col_from=cfg.request.map_col_from,
         map_col_to=cfg.request.map_col_to,
-        anchor_cols=cfg.request.anchor_cols,
+        exact_match=cfg.request.exact_match,
         id_col_from=cfg.request.id_col_from,
         id_col_to=cfg.request.id_col_to,
         extra_context_cols=cfg.request.extra_context_cols,
-        aliases=loaded.aliases,
+        relationship=cfg.request.relationship,
+        reason=cfg.request.reason,
         model=cfg.llm.model,
         gemini_api_key_env=cfg.llm.gemini_api_key_env,
         batch_size=cfg.pipeline.batch_size,
         max_candidates=cfg.pipeline.max_candidates,
-        resume_dir=cfg.output.directory,
-        run_name=cfg.pipeline.run_name,
         seed=cfg.llm.seed,
         llm_client=llm_client,
         temperature=cfg.llm.temperature,
@@ -75,18 +73,27 @@ def _run_from_config(config_path: str) -> int:
         review_score_threshold=cfg.pipeline.review_score_threshold,
         output_write_csv=cfg.output.write_csv,
         output_write_parquet=cfg.output.write_parquet,
-        output_write_jsonl=cfg.output.write_jsonl,
         loader_metadata=loaded.loader_metadata,
+        env_search_dir=cfg.source_dir,
     )
     _ = crosswalk
 
-    print(json.dumps({"status": "ok", "run_id": metadata["run_id"], "artifacts": metadata["artifacts"]}, indent=2))
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "run_id": metadata["run_id"],
+                "artifacts": metadata["artifacts"],
+            },
+            indent=2,
+        )
+    )
     return 0
 
 
 def _preview_from_config(config_path: str) -> int:
     cfg = load_config(config_path)
-    loaded = load_frames(cfg, cwd=Path.cwd())
+    loaded = load_frames(cfg)
 
     preview = preview_pipeline_plan(
         loaded.df_from,
@@ -96,20 +103,19 @@ def _preview_from_config(config_path: str) -> int:
         year_to=cfg.request.year_to,
         map_col_from=cfg.request.map_col_from,
         map_col_to=cfg.request.map_col_to,
-        anchor_cols=cfg.request.anchor_cols,
+        exact_match=cfg.request.exact_match,
         id_col_from=cfg.request.id_col_from,
         id_col_to=cfg.request.id_col_to,
         extra_context_cols=cfg.request.extra_context_cols,
-        aliases=loaded.aliases,
         max_candidates=cfg.pipeline.max_candidates,
     )
     print(json.dumps(preview, indent=2))
-    return 0
+    return 0 if preview["valid"] else 2
 
 
 def _validate_from_config(config_path: str) -> int:
     cfg = load_config(config_path)
-    loaded = load_frames(cfg, cwd=Path.cwd())
+    loaded = load_frames(cfg)
 
     diagnostics = validate_inputs_data(
         loaded.df_from,
@@ -117,10 +123,9 @@ def _validate_from_config(config_path: str) -> int:
         country=cfg.request.country,
         map_col_from=cfg.request.map_col_from,
         map_col_to=cfg.request.map_col_to,
-        anchor_cols=cfg.request.anchor_cols,
+        exact_match=cfg.request.exact_match,
         id_col_from=cfg.request.id_col_from,
         id_col_to=cfg.request.id_col_to,
-        aliases=loaded.aliases,
     )
     print(json.dumps(diagnostics, indent=2))
     return 0 if diagnostics["valid"] else 2

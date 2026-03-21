@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from .models import CacheSettings, RetrySettings
 
@@ -19,10 +19,18 @@ class RequestConfig(BaseModel):
     year_to: int | str
     map_col_from: str
     map_col_to: str | None = None
-    anchor_cols: list[str] = Field(default_factory=list)
+    exact_match: list[str] = Field(default_factory=list)
     id_col_from: str | None = None
     id_col_to: str | None = None
     extra_context_cols: list[str] = Field(default_factory=list)
+    relationship: Literal[
+        "auto",
+        "father_to_father",
+        "father_to_child",
+        "child_to_father",
+        "child_to_child",
+    ] = "auto"
+    reason: bool = False
 
 
 class DataConfig(BaseModel):
@@ -31,12 +39,11 @@ class DataConfig(BaseModel):
     mode: Literal["files", "python_hook"] = "files"
     from_path: str | None = None
     to_path: str | None = None
-    aliases_path: str | None = None
     callable: str | None = None
     params: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _validate_mode_fields(self) -> "DataConfig":
+    def _validate_mode_fields(self) -> DataConfig:
         if self.mode == "files":
             if not self.from_path or not self.to_path:
                 raise ValueError("data.from_path and data.to_path are required when mode=files")
@@ -61,21 +68,19 @@ class PipelineConfig(BaseModel):
     batch_size: int = 25
     max_candidates: int = 15
     review_score_threshold: float = 0.6
-    resume_dir: str = "outputs"
-    run_name: str | None = None
 
 
 class OutputConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    directory: str = "outputs"
     write_csv: bool = True
     write_parquet: bool = True
-    write_jsonl: bool = True
 
 
 class RunConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+    _source_path: Path | None = PrivateAttr(default=None)
 
     request: RequestConfig
     data: DataConfig
@@ -85,6 +90,16 @@ class RunConfig(BaseModel):
     cache: CacheSettings = Field(default_factory=CacheSettings)
     output: OutputConfig = Field(default_factory=OutputConfig)
 
+    @property
+    def source_path(self) -> Path | None:
+        return self._source_path
+
+    @property
+    def source_dir(self) -> Path | None:
+        if self._source_path is None:
+            return None
+        return self._source_path.parent
+
 
 class LoadedFrames(BaseModel):
     """Runtime container for loaded dataframes and loader metadata."""
@@ -93,7 +108,6 @@ class LoadedFrames(BaseModel):
 
     df_from: Any
     df_to: Any
-    aliases: Any = None
     loader_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -105,4 +119,6 @@ def load_config(path: str | Path) -> RunConfig:
         content = yaml.safe_load(handle)
     if not isinstance(content, dict):
         raise ValueError(f"Configuration must be a YAML object: {path_obj}")
-    return RunConfig.model_validate(content)
+    cfg = RunConfig.model_validate(content)
+    cfg._source_path = path_obj.resolve()
+    return cfg

@@ -7,15 +7,15 @@ from typing import Any
 import pandas as pd
 
 
-def coverage_summary(crosswalk: pd.DataFrame, anchor_cols: list[str]) -> dict[str, dict[str, int]]:
-    """Compute coverage counts by anchor group."""
+def coverage_summary(crosswalk: pd.DataFrame, exact_match: list[str]) -> dict[str, dict[str, int]]:
+    """Compute coverage counts by exact-match group."""
 
     if crosswalk.empty:
         return {}
 
     grouped = {}
-    if anchor_cols:
-        group_iter = crosswalk.groupby(anchor_cols, dropna=False)
+    if exact_match:
+        group_iter = crosswalk.groupby(exact_match, dropna=False)
     else:
         group_iter = [("__all__", crosswalk)]
 

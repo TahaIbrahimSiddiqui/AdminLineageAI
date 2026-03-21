@@ -9,3 +9,6 @@ __pycache__/
 .env
 .venv/
 outputs/
+build/
+dist/
+*.egg-info/

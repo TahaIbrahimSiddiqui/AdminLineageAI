@@ -8,6 +8,7 @@ from adminlineage.pipeline import run_pipeline
 
 def test_resume_skips_completed_from_units(sample_df_from, sample_df_to, tmp_path: Path):
     client = MockClient()
+    output_dir = tmp_path / "outputs"
 
     run_kwargs = dict(
         country="India",
@@ -15,14 +16,13 @@ def test_resume_skips_completed_from_units(sample_df_from, sample_df_to, tmp_pat
         year_to=2001,
         map_col_from="subdistrict",
         map_col_to="subdistrict",
-        anchor_cols=["state", "district"],
+        exact_match=["state", "district"],
         id_col_from="unit_id",
         id_col_to="unit_id",
         model="gemini-2.5-pro",
         batch_size=2,
         max_candidates=3,
-        resume_dir=tmp_path,
-        run_name="resume_run",
+        output_dir=output_dir,
         llm_client=client,
         output_write_parquet=False,
     )
@@ -35,5 +35,5 @@ def test_resume_skips_completed_from_units(sample_df_from, sample_df_to, tmp_pat
     second_calls = client.calls
     assert second_calls == first_calls
 
-    run_dir = tmp_path / "resume_run"
+    run_dir = output_dir / "india_1951_2001_subdistrict"
     assert (run_dir / "links_raw.jsonl").exists()

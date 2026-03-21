@@ -34,15 +34,3 @@ def sample_df_to() -> pd.DataFrame:
             "unit_id": ["t1", "t2", "t3", "t4"],
         }
     )
-
-
-@pytest.fixture
-def sample_aliases() -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "from_alias": ["East Circle"],
-            "to_alias": ["East Circle New"],
-            "state": ["S1"],
-            "district": ["D1"],
-        }
-    )

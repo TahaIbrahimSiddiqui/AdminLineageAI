@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "crosswalk_columns": [
     "from_name",
     "to_name",
@@ -9,7 +9,9 @@
     "to_id",
     "score",
     "link_type",
+    "relationship",
     "evidence",
+    "reason",
     "country",
     "year_from",
     "year_to",
@@ -26,25 +28,34 @@
     "no_match",
     "unknown"
   ],
+  "relationship_enum": [
+    "father_to_father",
+    "father_to_child",
+    "child_to_father",
+    "child_to_child",
+    "unknown"
+  ],
   "column_definitions": {
-    "from_name": "Raw source name from period A.",
-    "to_name": "Raw target name from period B; nullable for no-match/unknown.",
+    "from_name": "Raw source name from the earlier period.",
+    "to_name": "Raw target name from the later period; nullable for no-match and unknown rows.",
     "from_canonical_name": "Normalized source name used for lexical matching.",
     "to_canonical_name": "Normalized target name used for lexical matching.",
-    "from_id": "Source ID from user column or internal fallback key.",
-    "to_id": "Target ID from user column or internal fallback key.",
+    "from_id": "Source ID from the user column or internal fallback key.",
+    "to_id": "Target ID from the user column or internal fallback key.",
     "score": "Model confidence score in [0,1].",
-    "link_type": "One of rename, split, merge, transfer, no_match, unknown.",
-    "evidence": "Short non-chain-of-thought rationale summary.",
-    "country": "Country label provided in request.",
-    "year_from": "Period A label from request.",
-    "year_to": "Period B label from request.",
-    "run_id": "Deterministic identifier for this run.",
+    "link_type": "One of rename, split, merge, transfer, no_match, or unknown.",
+    "relationship": "Hierarchical relationship for the link.",
+    "evidence": "Short factual summary with no chain-of-thought.",
+    "reason": "Optional fuller explanation. Empty by default unless reason mode is enabled.",
+    "country": "Country label from the request.",
+    "year_from": "Earlier-period label from the request.",
+    "year_to": "Later-period label from the request.",
+    "run_id": "Deterministic identifier for the run.",
     "from_key": "Internal stable source key.",
     "to_key": "Internal stable target key; nullable.",
-    "constraints_passed": "JSON object of boolean checks (candidate_membership, anchor_match).",
-    "<anchor columns>": "User-provided anchor context columns, appended dynamically.",
-    "review_flags": "List of quality flags for manual review.",
+    "constraints_passed": "JSON object of boolean checks such as candidate_membership and exact_match.",
+    "<exact_match columns>": "User-provided exact-match context columns appended dynamically.",
+    "review_flags": "List of QA flags for manual review.",
     "review_reason": "Comma-joined summary of review flags."
   },
   "required_output_columns": [
@@ -53,6 +64,9 @@
     "from_id",
     "score",
     "link_type",
+    "relationship",
+    "evidence",
+    "reason",
     "country",
     "year_from",
     "year_to",
@@ -67,8 +81,8 @@
     "to_key"
   ],
   "notes": {
-    "anchor_columns": "Appended dynamically when provided in request.anchor_cols.",
+    "exact_match_columns": "Appended dynamically when provided in request.exact_match.",
     "many_to_many": "Multiple rows per from_key and per to_key are allowed.",
-    "resume_source": "links_raw.jsonl is the resumability source of truth in each run directory."
+    "resume_source": "links_raw.jsonl is the resumability source of truth inside each run directory."
   }
 }

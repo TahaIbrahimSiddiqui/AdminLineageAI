@@ -29,3 +29,13 @@ jobs:
 
       - name: Test
         run: python -m pytest
+
+      - name: Build
+        run: python -m build
+
+      - name: Wheel Smoke Test
+        run: |
+          python -m pip uninstall -y adminlineage
+          python -m pip install dist/*.whl
+          python -c "import adminlineage; print(adminlineage.__version__)"
+          adminlineage --help

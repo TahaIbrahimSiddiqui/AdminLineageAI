@@ -4,16 +4,17 @@ request:
   year_to: 2001
   map_col_from: subdistrict
   map_col_to: subdistrict
-  anchor_cols: [state, district]
+  exact_match: [state, district]
   id_col_from: unit_id
   id_col_to: unit_id
   extra_context_cols: []
+  relationship: auto
+  reason: false
 
 data:
   mode: files
-  from_path: examples/data/from_units.csv
-  to_path: examples/data/to_units.csv
-  aliases_path: examples/data/aliases.csv
+  from_path: ../data/from_units.csv
+  to_path: ../data/to_units.csv
 
 llm:
   provider: mock
@@ -26,7 +27,6 @@ pipeline:
   batch_size: 25
   max_candidates: 15
   review_score_threshold: 0.6
-  run_name: example_run
 
 cache:
   enabled: true
@@ -40,7 +40,5 @@ retry:
   jitter_seconds: 0.2
 
 output:
-  directory: outputs
   write_csv: true
   write_parquet: true
-  write_jsonl: true

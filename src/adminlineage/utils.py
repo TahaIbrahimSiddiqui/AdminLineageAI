@@ -6,9 +6,10 @@ import hashlib
 import json
 import re
 import subprocess
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any
 
 
 def stable_hash(payload: Any) -> str:
@@ -45,6 +46,34 @@ def ensure_dir(path: str | Path) -> Path:
     path_obj = Path(path)
     path_obj.mkdir(parents=True, exist_ok=True)
     return path_obj
+
+
+def find_file_in_parents(filename: str, start_dir: str | Path | None = None) -> Path | None:
+    """Find a file by walking up from start_dir to filesystem root."""
+
+    base = Path(start_dir) if start_dir is not None else Path.cwd()
+    base = base.resolve()
+    for directory in (base, *base.parents):
+        candidate = directory / filename
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def load_env_file(search_dir: str | Path | None = None) -> Path | None:
+    """Load the nearest .env file without overriding existing environment values."""
+
+    try:
+        from dotenv import load_dotenv
+    except Exception:
+        return None
+
+    env_path = find_file_in_parents(".env", start_dir=search_dir)
+    if env_path is None:
+        return None
+
+    load_dotenv(env_path, override=False)
+    return env_path
 
 
 def chunked(items: Iterable[Any], size: int) -> Iterator[list[Any]]:

@@ -28,7 +28,7 @@ def export_crosswalk_file(
         raise ValueError("output_format must be one of: csv, parquet, jsonl")
 
     if output_path is None:
-        out_path = in_path.with_suffix(f".{fmt}")
+        out_path = in_path.with_name(f"{in_path.stem}_export.{fmt}")
     else:
         out_path = Path(output_path)
 

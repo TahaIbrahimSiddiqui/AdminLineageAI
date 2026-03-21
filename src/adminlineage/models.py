@@ -9,6 +9,20 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .schema import OUTPUT_SCHEMA_VERSION, PROMPT_SCHEMA_VERSION
 
 LinkType = Literal["rename", "split", "merge", "transfer", "no_match", "unknown"]
+RelationshipType = Literal[
+    "father_to_father",
+    "father_to_child",
+    "child_to_father",
+    "child_to_child",
+    "unknown",
+]
+RequestRelationshipType = Literal[
+    "auto",
+    "father_to_father",
+    "father_to_child",
+    "child_to_father",
+    "child_to_child",
+]
 
 
 class MappingRequest(BaseModel):
@@ -19,9 +33,11 @@ class MappingRequest(BaseModel):
     country: str
     year_from: int | str
     year_to: int | str
-    anchor_cols: list[str] = Field(default_factory=list)
+    exact_match: list[str] = Field(default_factory=list)
     map_col_from: str
     map_col_to: str
+    relationship: RequestRelationshipType = "auto"
+    reason: bool = False
     model: str = "gemini-2.5-pro"
     batch_size: int = 25
     max_candidates: int = 15
@@ -52,7 +68,7 @@ class AdminUnitRecord(BaseModel):
     name: str
     canonical_name: str
     unit_id: str | int | None = None
-    anchors: dict[str, Any] = Field(default_factory=dict)
+    exact_match: dict[str, Any] = Field(default_factory=dict)
     extras: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -65,36 +81,68 @@ class CandidateLink(BaseModel):
     to_key: str | None = None
     score: float = Field(ge=0.0, le=1.0)
     link_type: LinkType
+    relationship: RelationshipType = "unknown"
     evidence: str = ""
+    reason: str = ""
     constraints_passed: dict[str, bool] = Field(default_factory=dict)
 
 
-class LLMChosenLink(BaseModel):
+class LLMChosenLinkNoReason(BaseModel):
     """Single to-unit decision returned by LLM for one from-unit."""
 
     model_config = ConfigDict(extra="forbid")
 
     to_key: str | None = None
     link_type: LinkType
+    relationship: RelationshipType
     score: float = Field(ge=0.0, le=1.0)
     evidence: str
 
 
-class LLMFromDecision(BaseModel):
+class LLMChosenLinkWithReason(LLMChosenLinkNoReason):
+    """Reason-enabled LLM response item."""
+
+    reason: str
+
+
+class LLMFromDecisionNoReason(BaseModel):
     """LLM decisions for one from-unit."""
 
     model_config = ConfigDict(extra="forbid")
 
     from_key: str
-    links: list[LLMChosenLink]
+    links: list[LLMChosenLinkNoReason]
 
 
-class LLMBatchResponse(BaseModel):
+class LLMFromDecisionWithReason(BaseModel):
+    """LLM decisions for one from-unit when detailed reasons are enabled."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    from_key: str
+    links: list[LLMChosenLinkWithReason]
+
+
+class LLMBatchResponseNoReason(BaseModel):
     """Strict JSON structure expected from Gemini batch adjudication."""
 
     model_config = ConfigDict(extra="forbid")
 
-    decisions: list[LLMFromDecision]
+    decisions: list[LLMFromDecisionNoReason]
+
+
+class LLMBatchResponseWithReason(BaseModel):
+    """Strict JSON structure expected from Gemini when detailed reasons are enabled."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decisions: list[LLMFromDecisionWithReason]
+
+
+def get_batch_response_model(include_reason: bool) -> type[BaseModel]:
+    """Return the strict response model for the requested reason mode."""
+
+    return LLMBatchResponseWithReason if include_reason else LLMBatchResponseNoReason
 
 
 class EvolutionKey(BaseModel):

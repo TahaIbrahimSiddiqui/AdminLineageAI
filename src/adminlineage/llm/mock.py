@@ -35,6 +35,8 @@ class MockClient(BaseLLMClient):
         payload = json.loads(payload_raw)
 
         decisions: list[dict[str, Any]] = []
+        requested_relationship = payload.get("requested_relationship", "auto")
+        include_reason = bool(payload.get("include_reason", False))
         for item in payload.get("items", []):
             candidates = item.get("candidates", [])
             if not candidates:
@@ -42,6 +44,7 @@ class MockClient(BaseLLMClient):
                     {
                         "to_key": None,
                         "link_type": "no_match",
+                        "relationship": "unknown",
                         "score": 0.0,
                         "evidence": "No candidates available in constrained group.",
                     }
@@ -55,10 +58,30 @@ class MockClient(BaseLLMClient):
                     {
                         "to_key": first["to_key"],
                         "link_type": link_type,
-                        "score": max(first["score"], self.default_score if link_type == "rename" else 0.4),
-                        "evidence": "Best lexical and contextual candidate within anchor constraints.",
+                        "relationship": (
+                            requested_relationship
+                            if requested_relationship != "auto"
+                            else "father_to_father"
+                        ),
+                        "score": max(
+                            first["score"],
+                            self.default_score if link_type == "rename" else 0.4,
+                        ),
+                        "evidence": (
+                            "Best lexical and contextual candidate within exact-match constraints."
+                        ),
                     }
                 ]
+            if include_reason:
+                for link in links:
+                    link["reason"] = (
+                        (
+                            "The lexical score and local context were stronger than the other "
+                            "available options."
+                        )
+                        if link["to_key"] is not None
+                        else "No candidate was strong enough to justify a link."
+                    )
             decisions.append({"from_key": item["from_key"], "links": links})
 
         response = {"decisions": decisions}
