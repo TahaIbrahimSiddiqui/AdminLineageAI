@@ -27,6 +27,68 @@ def _default_run_name(country: str, year_from: int | str, year_to: int | str, ma
     return f"{sanitize_name(country)}_{year_from}_{year_to}_{sanitize_name(map_col)}"
 
 
+def _archive_resume_file(
+    links_raw_path: Path,
+    *,
+    logger: Any,
+    current_run_id: str,
+    existing_records: list[dict[str, Any]],
+) -> Path:
+    existing_run_ids = sorted(
+        {
+            str(record.get("run_id"))
+            for record in existing_records
+            if record.get("run_id") not in {None, current_run_id}
+        }
+    )
+    suffix = existing_run_ids[0] if len(existing_run_ids) == 1 else "mixed"
+    archive_path = links_raw_path.with_name(f"{links_raw_path.stem}.archive-{suffix}.jsonl")
+    counter = 1
+    while archive_path.exists():
+        archive_path = links_raw_path.with_name(
+            f"{links_raw_path.stem}.archive-{suffix}-{counter}.jsonl"
+        )
+        counter += 1
+
+    links_raw_path.replace(archive_path)
+    logger.info(
+        "run_id=%s stage=resume archived_stale_raw_links=%s",
+        current_run_id,
+        archive_path.name,
+    )
+    return archive_path
+
+
+def _prepare_resume_records(
+    *,
+    links_raw_path: Path,
+    run_id: str,
+    logger: Any,
+    warnings: list[str],
+) -> list[dict[str, Any]]:
+    existing_records = read_jsonl(links_raw_path)
+    if not existing_records:
+        return []
+
+    existing_run_ids = {record.get("run_id") for record in existing_records if record.get("run_id")}
+    same_request = existing_run_ids == {run_id}
+    legacy_records = not existing_run_ids and bool(existing_records)
+    if same_request and not legacy_records:
+        return existing_records
+
+    archive_path = _archive_resume_file(
+        links_raw_path,
+        logger=logger,
+        current_run_id=run_id,
+        existing_records=existing_records,
+    )
+    warnings.append(
+        "Existing raw link records did not match the current request and were archived to "
+        f"{archive_path.name}."
+    )
+    return []
+
+
 def _build_llm_client(
     *,
     gemini_api_key_env: str,
@@ -291,6 +353,12 @@ def run_pipeline(
         max_candidates=max_candidates,
         seed=seed,
     )
+    run_identity = {
+        "request": request.model_dump(),
+        "extra_context_cols": extra_context_cols,
+        "temperature": temperature,
+        "llm_backend": llm_client.__class__.__name__ if llm_client is not None else "GeminiClient",
+    }
 
     run_name = _default_run_name(country, year_from, year_to, map_col_from)
     base_dir = ensure_dir(output_dir)
@@ -298,7 +366,7 @@ def run_pipeline(
     logger = setup_logger(run_dir)
 
     warnings = list(validation["warnings"])
-    run_id = build_run_id(request.model_dump(), seed=seed)
+    run_id = build_run_id(run_identity, seed=seed)
     logger.info(
         "run_id=%s stage=start country=%s years=%s->%s",
         run_id,
@@ -343,7 +411,12 @@ def run_pipeline(
     )
 
     links_raw_path = run_dir / "links_raw.jsonl"
-    existing_records = read_jsonl(links_raw_path)
+    existing_records = _prepare_resume_records(
+        links_raw_path=links_raw_path,
+        run_id=run_id,
+        logger=logger,
+        warnings=warnings,
+    )
     completed_from_keys = {
         record["from_key"]
         for record in existing_records
@@ -618,9 +691,12 @@ def run_pipeline(
             crosswalk.to_parquet(parquet_path, index=False)
             metadata["artifacts"]["evolution_key_parquet"] = str(parquet_path)
         except Exception as exc:
-            warning = f"Parquet write failed ({exc}); CSV output still written."
+            warning = f"Parquet write failed ({exc}); wrote CSV fallback instead."
             warnings.append(warning)
             logger.warning("run_id=%s stage=output %s", run_id, warning)
+            if "evolution_key_csv" not in metadata["artifacts"]:
+                crosswalk.to_csv(csv_path, index=False)
+                metadata["artifacts"]["evolution_key_csv"] = str(csv_path)
 
     review_queue.to_csv(review_path, index=False)
     write_json(metadata_path, metadata)

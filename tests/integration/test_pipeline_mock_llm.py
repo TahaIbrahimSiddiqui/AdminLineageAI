@@ -82,3 +82,50 @@ def test_pipeline_reason_mode_with_mock(sample_df_from, sample_df_to, tmp_path: 
 
     assert crosswalk["reason"].str.len().gt(0).all()
     assert set(crosswalk["relationship"]) == {"father_to_child"}
+
+
+def test_pipeline_writes_csv_fallback_when_parquet_fails(
+    sample_df_from,
+    sample_df_to,
+    tmp_path: Path,
+    monkeypatch,
+):
+    client = MockClient(default_score=0.91)
+
+    def _raise_parquet_error(self, *args, **kwargs):
+        _ = (self, args, kwargs)
+        raise RuntimeError("parquet engine exploded")
+
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", _raise_parquet_error)
+
+    _, metadata = run_pipeline(
+        sample_df_from,
+        sample_df_to,
+        country="India",
+        year_from=1951,
+        year_to=2001,
+        map_col_from="subdistrict",
+        map_col_to="subdistrict",
+        exact_match=["state", "district"],
+        id_col_from="unit_id",
+        id_col_to="unit_id",
+        relationship="auto",
+        reason=False,
+        model="gemini-2.5-pro",
+        batch_size=2,
+        max_candidates=3,
+        output_dir=tmp_path / "outputs_parquet_fallback",
+        llm_client=client,
+        output_write_csv=False,
+        output_write_parquet=True,
+    )
+
+    csv_path = (
+        tmp_path
+        / "outputs_parquet_fallback"
+        / "india_1951_2001_subdistrict"
+        / "evolution_key.csv"
+    )
+    assert csv_path.exists()
+    assert metadata["artifacts"]["evolution_key_csv"] == str(csv_path)
+    assert any("wrote CSV fallback instead" in warning for warning in metadata["warnings"])
