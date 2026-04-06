@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from ..prompts import build_repair_prompt
-from ..schema import PROMPT_SCHEMA_VERSION
+from ..schema import LINK_TYPES, PROMPT_SCHEMA_VERSION, RELATIONSHIP_TYPES
 from ..utils import load_env_file, now_iso
 from .base import (
     BaseLLMClient,
@@ -21,6 +21,12 @@ from .base import (
 )
 from .cache import SQLiteCache
 from .retry import retry_call
+
+_VALID_LINK_TYPES = set(LINK_TYPES)
+_VALID_RELATIONSHIP_TYPES = set(RELATIONSHIP_TYPES)
+_LINK_TYPE_ALIASES = {
+    "exact_match": "rename",
+}
 
 
 class GeminiClient(BaseLLMClient):
@@ -67,6 +73,7 @@ class GeminiClient(BaseLLMClient):
         temperature: float,
         seed: int,
         enable_google_search: bool,
+        schema: Any | None = None,
     ) -> Any:
         tools = []
         if enable_google_search:
@@ -80,6 +87,8 @@ class GeminiClient(BaseLLMClient):
             config_kwargs["tools"] = tools
         else:
             config_kwargs["response_mime_type"] = "application/json"
+            if schema is not None:
+                config_kwargs["response_schema"] = schema
         return genai_types.GenerateContentConfig(**config_kwargs)
 
     @staticmethod
@@ -145,6 +154,11 @@ class GeminiClient(BaseLLMClient):
             "server disconnected without sending a response",
             "stream ended unexpectedly",
             "service unavailable",
+            "getaddrinfo failed",
+            "temporary failure in name resolution",
+            "name or service not known",
+            "nodename nor servname provided",
+            "failed to establish a new connection",
         )
 
         # Billing and quota failures need a hard stop. Transport hiccups should get another shot.
@@ -206,6 +220,7 @@ class GeminiClient(BaseLLMClient):
         temperature: float,
         seed: int,
         enable_google_search: bool,
+        schema: Any | None = None,
     ) -> str:
         if not self._env_loaded:
             # Notebook runs often start outside the repo root,
@@ -234,6 +249,7 @@ class GeminiClient(BaseLLMClient):
             temperature=temperature,
             seed=seed,
             enable_google_search=enable_google_search,
+            schema=schema,
         )
 
         def _invoke() -> str:
@@ -261,7 +277,47 @@ class GeminiClient(BaseLLMClient):
         )
 
     @staticmethod
-    def _validate_schema(data: dict[str, Any], schema: Any) -> dict[str, Any]:
+    def _normalize_enum_token(value: str) -> str:
+        return value.strip().lower().replace("-", "_").replace(" ", "_")
+
+    @classmethod
+    def _normalize_link_type(cls, value: str) -> str | None:
+        normalized = cls._normalize_enum_token(value)
+        if normalized in _VALID_LINK_TYPES:
+            return normalized
+        return _LINK_TYPE_ALIASES.get(normalized)
+
+    @classmethod
+    def _normalize_relationship(cls, value: str) -> str | None:
+        normalized = cls._normalize_enum_token(value)
+        if normalized in _VALID_RELATIONSHIP_TYPES:
+            return normalized
+        return None
+
+    @classmethod
+    def _normalize_payload(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return [cls._normalize_payload(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            item = cls._normalize_payload(item)
+            if key == "link_type" and isinstance(item, str):
+                item = cls._normalize_link_type(item) or item
+            elif key == "relationship" and isinstance(item, str):
+                item = cls._normalize_relationship(item) or item
+            elif key == "to_key" and isinstance(item, str):
+                token = cls._normalize_enum_token(item)
+                if token in {"null", "none"}:
+                    item = None
+            normalized[key] = item
+        return normalized
+
+    @classmethod
+    def _validate_schema(cls, data: dict[str, Any], schema: Any) -> dict[str, Any]:
+        data = cls._normalize_payload(data)
         if isinstance(schema, type) and issubclass(schema, BaseModel):
             return schema.model_validate(data).model_dump()
         return data
@@ -298,6 +354,7 @@ class GeminiClient(BaseLLMClient):
             temperature=temperature,
             seed=seed,
             enable_google_search=enable_google_search,
+            schema=schema,
         )
         try:
             parsed = json.loads(raw_text)
@@ -314,6 +371,7 @@ class GeminiClient(BaseLLMClient):
                 temperature=0.0,
                 seed=seed,
                 enable_google_search=False,
+                schema=schema,
             )
             try:
                 parsed = json.loads(repair_text)

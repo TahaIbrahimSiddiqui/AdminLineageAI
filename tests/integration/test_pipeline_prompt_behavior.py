@@ -62,7 +62,7 @@ class CapturingClient(BaseLLMClient):
         return response
 
 
-def test_pipeline_keeps_search_enabled_without_prompt_grounding(
+def test_pipeline_includes_grounding_guidance_when_search_is_enabled(
     sample_df_from,
     sample_df_to,
     tmp_path: Path,
@@ -95,10 +95,10 @@ def test_pipeline_keeps_search_enabled_without_prompt_grounding(
     assert client.search_flags == [True, True]
     assert client.prompts
     assert all(
-        "Use only the provided names and hierarchical context." in prompt
+        "If grounding tools are available, you may use them only to verify names, geography," in prompt
         for prompt in client.prompts
     )
-    assert all("grounding tools are available" not in prompt for prompt in client.prompts)
+    assert all("Use only the provided names and hierarchical context." not in prompt for prompt in client.prompts)
 
 
 def test_string_exact_match_prune_from_skips_exact_from_rows_but_keeps_to_candidates(

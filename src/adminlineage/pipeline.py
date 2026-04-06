@@ -913,6 +913,7 @@ def run_pipeline(
             relationship=relationship,
             include_reason=reason,
             batch_items=batch_items,
+            allow_external_grounding=enable_google_search,
         )
 
         logger.info(

@@ -4,10 +4,16 @@ import sys
 import types
 
 import pytest
+from pydantic import BaseModel
 
 import adminlineage.llm.gemini as gemini_module
 from adminlineage.llm.base import QuotaExceededLLMError
 from adminlineage.llm.gemini import GeminiClient
+from adminlineage.models import LLMBatchResponseNoReason
+
+
+class DummyBatchResponse(BaseModel):
+    decisions: list[dict[str, object]]
 
 
 def test_gemini_client_reads_api_key_from_dotenv(tmp_path, monkeypatch):
@@ -84,6 +90,7 @@ def test_gemini_client_builds_search_tool_config(tmp_path, monkeypatch):
         def __init__(self, **kwargs):
             self.temperature = kwargs["temperature"]
             self.response_mime_type = kwargs.get("response_mime_type")
+            self.response_schema = kwargs.get("response_schema")
             self.seed = kwargs["seed"]
             self.tools = kwargs.get("tools", [])
 
@@ -116,11 +123,13 @@ def test_gemini_client_builds_search_tool_config(tmp_path, monkeypatch):
         temperature=0.75,
         seed=99,
         enable_google_search=True,
+        schema=DummyBatchResponse,
     )
     config = captured["config"]
     assert config.temperature == 0.75
     assert config.seed == 99
     assert config.response_mime_type is None
+    assert config.response_schema is None
     assert len(config.tools) == 1
     assert config.tools[0].google_search is not None
 
@@ -130,9 +139,11 @@ def test_gemini_client_builds_search_tool_config(tmp_path, monkeypatch):
         temperature=0.75,
         seed=99,
         enable_google_search=True,
+        schema=DummyBatchResponse,
     )
     config = captured["config"]
     assert config.response_mime_type is None
+    assert config.response_schema is None
     assert len(config.tools) == 1
     assert config.tools[0].google_search is not None
 
@@ -142,10 +153,36 @@ def test_gemini_client_builds_search_tool_config(tmp_path, monkeypatch):
         temperature=0.75,
         seed=99,
         enable_google_search=False,
+        schema=DummyBatchResponse,
     )
     config = captured["config"]
     assert config.response_mime_type == "application/json"
+    assert config.response_schema is DummyBatchResponse
     assert config.tools == []
+
+
+def test_gemini_client_normalizes_link_type_aliases():
+    data = {
+        "decisions": [
+            {
+                "from_key": "from_1",
+                "links": [
+                    {
+                        "to_key": "to_1",
+                        "link_type": "exact-match",
+                        "relationship": "father-to-father",
+                        "score": 0.9,
+                        "evidence": "Strong lexical match.",
+                    }
+                ],
+            }
+        ]
+    }
+
+    validated = GeminiClient._validate_schema(data, LLMBatchResponseNoReason)
+
+    assert validated["decisions"][0]["links"][0]["link_type"] == "rename"
+    assert validated["decisions"][0]["links"][0]["relationship"] == "father_to_father"
 
 
 def test_gemini_client_retries_empty_response(tmp_path, monkeypatch):
@@ -278,6 +315,73 @@ def test_gemini_client_retries_transient_provider_errors(tmp_path, monkeypatch):
 
     assert result == '{"decisions":[]}'
     assert calls["count"] == 4
+
+
+def test_gemini_client_retries_dns_lookup_errors(tmp_path, monkeypatch):
+    env_path = tmp_path / ".env"
+    env_path.write_text("TEST_GEMINI_KEY=from_dotenv\n", encoding="utf-8")
+    monkeypatch.delenv("TEST_GEMINI_KEY", raising=False)
+
+    calls = {"count": 0}
+
+    class FakeGoogleSearch:
+        pass
+
+    class FakeTool:
+        def __init__(self, *, google_search=None):
+            self.google_search = google_search
+
+    class FakeGenerateContentConfig:
+        def __init__(self, **kwargs):
+            self.temperature = kwargs["temperature"]
+            self.response_mime_type = kwargs.get("response_mime_type")
+            self.seed = kwargs["seed"]
+            self.tools = kwargs.get("tools", [])
+
+    class FakeModels:
+        @staticmethod
+        def generate_content(**kwargs):
+            _ = kwargs
+            calls["count"] += 1
+            if calls["count"] < 3:
+                raise RuntimeError("[Errno 11001] getaddrinfo failed")
+            return types.SimpleNamespace(text='{"decisions":[]}')
+
+    class FakeGenAIClient:
+        def __init__(self, api_key: str):
+            _ = api_key
+            self.models = FakeModels()
+
+    fake_types = types.SimpleNamespace(
+        Tool=FakeTool,
+        GoogleSearch=FakeGoogleSearch,
+        GenerateContentConfig=FakeGenerateContentConfig,
+    )
+    fake_google = types.SimpleNamespace(
+        genai=types.SimpleNamespace(Client=FakeGenAIClient, types=fake_types)
+    )
+    monkeypatch.setitem(sys.modules, "google", fake_google)
+
+    client = GeminiClient(
+        api_key_env="TEST_GEMINI_KEY",
+        env_search_dir=tmp_path,
+        max_attempts=3,
+        base_delay_seconds=0.0,
+        max_delay_seconds=0.0,
+        jitter_seconds=0.0,
+        min_request_interval_seconds=0.0,
+    )
+
+    result = client._call_model(
+        "{}",
+        model="gemini-2.5-pro",
+        temperature=0.0,
+        seed=42,
+        enable_google_search=False,
+    )
+
+    assert result == '{"decisions":[]}'
+    assert calls["count"] == 3
 
 
 def test_gemini_client_retries_server_disconnect_errors(tmp_path, monkeypatch):
