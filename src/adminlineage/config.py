@@ -8,7 +8,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
-from .models import CacheSettings, RetrySettings
+from .models import CacheSettings, ReplaySettings, RetrySettings
 
 
 class RequestConfig(BaseModel):
@@ -30,6 +30,7 @@ class RequestConfig(BaseModel):
         "child_to_father",
         "child_to_child",
     ] = "auto"
+    string_exact_match_prune: Literal["none", "from", "to"] = "none"
     reason: bool = False
 
 
@@ -60,6 +61,7 @@ class LLMConfig(BaseModel):
     gemini_api_key_env: str = "GEMINI_API_KEY"
     temperature: float = 0.0
     seed: int = 42
+    enable_google_search: bool = False
 
 
 class PipelineConfig(BaseModel):
@@ -88,6 +90,7 @@ class RunConfig(BaseModel):
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     retry: RetrySettings = Field(default_factory=RetrySettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
+    replay: ReplaySettings = Field(default_factory=ReplaySettings)
     output: OutputConfig = Field(default_factory=OutputConfig)
 
     @property

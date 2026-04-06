@@ -17,6 +17,8 @@ class BaseLLMClient(ABC):
         model: str,
         temperature: float,
         seed: int,
+        *,
+        enable_google_search: bool = False,
     ) -> dict[str, Any]:
         """Generate JSON response validated against schema."""
 
@@ -27,3 +29,7 @@ class LLMServiceError(RuntimeError):
 
 class TransientLLMError(LLMServiceError):
     """Raised when a call may succeed on retry."""
+
+
+class QuotaExceededLLMError(LLMServiceError):
+    """Raised when the provider rejects calls because billing or quota is exhausted."""

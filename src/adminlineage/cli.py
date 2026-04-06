@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from .config import load_config
 from .export import export_crosswalk_file
@@ -38,6 +39,9 @@ def _build_parser() -> argparse.ArgumentParser:
 def _run_from_config(config_path: str) -> int:
     cfg = load_config(config_path)
     loaded = load_frames(cfg)
+    replay_store_dir = Path(cfg.replay.store_dir)
+    if not replay_store_dir.is_absolute() and cfg.source_dir is not None:
+        replay_store_dir = cfg.source_dir / replay_store_dir
 
     llm_client = None
     if cfg.llm.provider == "mock":
@@ -56,6 +60,7 @@ def _run_from_config(config_path: str) -> int:
         id_col_to=cfg.request.id_col_to,
         extra_context_cols=cfg.request.extra_context_cols,
         relationship=cfg.request.relationship,
+        string_exact_match_prune=cfg.request.string_exact_match_prune,
         reason=cfg.request.reason,
         model=cfg.llm.model,
         gemini_api_key_env=cfg.llm.gemini_api_key_env,
@@ -64,8 +69,11 @@ def _run_from_config(config_path: str) -> int:
         seed=cfg.llm.seed,
         llm_client=llm_client,
         temperature=cfg.llm.temperature,
+        enable_google_search=cfg.llm.enable_google_search,
         cache_enabled=cfg.cache.enabled,
         cache_path=cfg.cache.path,
+        replay_enabled=cfg.replay.enabled,
+        replay_store_dir=replay_store_dir,
         retry_max_attempts=cfg.retry.max_attempts,
         retry_base_delay=cfg.retry.base_delay_seconds,
         retry_max_delay=cfg.retry.max_delay_seconds,
@@ -107,6 +115,7 @@ def _preview_from_config(config_path: str) -> int:
         id_col_from=cfg.request.id_col_from,
         id_col_to=cfg.request.id_col_to,
         extra_context_cols=cfg.request.extra_context_cols,
+        string_exact_match_prune=cfg.request.string_exact_match_prune,
         max_candidates=cfg.pipeline.max_candidates,
     )
     print(json.dumps(preview, indent=2))

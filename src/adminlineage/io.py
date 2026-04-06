@@ -115,6 +115,16 @@ def append_jsonl(path: str | Path, record: dict[str, Any]) -> None:
         handle.write(json.dumps(record, ensure_ascii=True, sort_keys=True) + "\n")
 
 
+def write_jsonl(path: str | Path, records: list[dict[str, Any]]) -> None:
+    """Write JSONL records with deterministic formatting."""
+
+    path_obj = Path(path)
+    ensure_dir(path_obj.parent)
+    with path_obj.open("w", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(record, ensure_ascii=True, sort_keys=True) + "\n")
+
+
 def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
     """Read JSONL records; return empty list if file missing."""
 

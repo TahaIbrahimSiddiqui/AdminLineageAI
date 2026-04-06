@@ -23,6 +23,7 @@ RequestRelationshipType = Literal[
     "child_to_father",
     "child_to_child",
 ]
+ExactStringPruneMode = Literal["none", "from", "to"]
 
 
 class MappingRequest(BaseModel):
@@ -37,11 +38,14 @@ class MappingRequest(BaseModel):
     map_col_from: str
     map_col_to: str
     relationship: RequestRelationshipType = "auto"
+    string_exact_match_prune: ExactStringPruneMode = "none"
     reason: bool = False
     model: str = "gemini-2.5-pro"
     batch_size: int = 25
     max_candidates: int = 15
     seed: int = 42
+    temperature: float = 0.0
+    enable_google_search: bool = False
     schema_version: str = PROMPT_SCHEMA_VERSION
 
     @field_validator("country")
@@ -161,7 +165,9 @@ class RetrySettings(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    max_attempts: int = 3
+    # A slightly longer retry window helps Gemini ride out short-lived 503 spikes
+    # before we give up on a row and mark it unresolved.
+    max_attempts: int = 6
     base_delay_seconds: float = 1.0
     max_delay_seconds: float = 20.0
     jitter_seconds: float = 0.2
@@ -175,6 +181,15 @@ class CacheSettings(BaseModel):
     enabled: bool = True
     backend: Literal["sqlite"] = "sqlite"
     path: str = "llm_cache.sqlite"
+
+
+class ReplaySettings(BaseModel):
+    """Exact replay settings for fully completed runs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    store_dir: str = ".adminlineage_replay"
 
 
 class RunMetadata(BaseModel):

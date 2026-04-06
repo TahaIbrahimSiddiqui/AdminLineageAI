@@ -25,12 +25,19 @@ def build_evolution_key(
     id_col_to: str | None = None,
     extra_context_cols: list[str] | None = None,
     relationship: str = "auto",
+    string_exact_match_prune: str = "none",
     reason: bool = False,
     model: str = "gemini-2.5-pro",
     gemini_api_key_env: str = "GEMINI_API_KEY",
     batch_size: int = 25,
     max_candidates: int = 15,
+    output_dir: str | Path = "outputs",
     seed: int = 42,
+    temperature: float = 0.0,
+    enable_google_search: bool = False,
+    env_search_dir: str | Path | None = None,
+    replay_enabled: bool = False,
+    replay_store_dir: str | Path | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """Build an administrative evolution key between two periods."""
 
@@ -47,12 +54,19 @@ def build_evolution_key(
         id_col_to=id_col_to,
         extra_context_cols=extra_context_cols,
         relationship=relationship,
+        string_exact_match_prune=string_exact_match_prune,
         reason=reason,
         model=model,
         gemini_api_key_env=gemini_api_key_env,
         batch_size=batch_size,
         max_candidates=max_candidates,
+        output_dir=output_dir,
         seed=seed,
+        temperature=temperature,
+        enable_google_search=enable_google_search,
+        env_search_dir=env_search_dir,
+        replay_enabled=replay_enabled,
+        replay_store_dir=replay_store_dir,
     )
 
 
@@ -69,6 +83,7 @@ def preview_plan(
     id_col_from: str | None = None,
     id_col_to: str | None = None,
     extra_context_cols: list[str] | None = None,
+    string_exact_match_prune: str = "none",
     max_candidates: int = 15,
 ) -> dict:
     """Preview grouping and candidate-generation plan without LLM calls."""
@@ -85,6 +100,7 @@ def preview_plan(
         id_col_from=id_col_from,
         id_col_to=id_col_to,
         extra_context_cols=extra_context_cols,
+        string_exact_match_prune=string_exact_match_prune,
         max_candidates=max_candidates,
     )
 

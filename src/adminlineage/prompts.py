@@ -17,6 +17,7 @@ def build_batch_prompt(
     relationship: str,
     include_reason: bool,
     batch_items: list[dict[str, Any]],
+    allow_external_grounding: bool = False,
 ) -> str:
     """Create strict JSON-only adjudication prompt for one batch."""
 
@@ -52,11 +53,19 @@ def build_batch_prompt(
         else "8) Do not include a `reason` field in the JSON.\n"
     )
 
+    grounding_rule = (
+        "1) Candidate selection is limited to the supplied shortlist and exact-match context. "
+        "If grounding tools are available, you may use them only to verify names, geography, "
+        "dates, and lineage facts before choosing among the supplied candidates.\n"
+        if allow_external_grounding
+        else "1) Use only the provided names and hierarchical context.\n"
+    )
+
     return (
         "You are an administrative evolution key adjudication engine.\n"
         "Task: choose mappings from period A units to period B candidates.\n"
         "Rules:\n"
-        "1) Use only the provided names and hierarchical context.\n"
+        f"{grounding_rule}"
         "2) Respect the exact_match context exactly.\n"
         "3) Return strict JSON only (no markdown, no prose).\n"
         "4) Return one decision for every input from_key.\n"

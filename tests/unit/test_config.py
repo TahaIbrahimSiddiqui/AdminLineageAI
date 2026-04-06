@@ -18,6 +18,7 @@ request:
   year_to: 2001
   map_col_from: subdistrict
   exact_match: [state, district]
+  string_exact_match_prune: to
   relationship: father_to_child
   reason: true
 data:
@@ -26,6 +27,11 @@ data:
   to_path: examples/data/to_units.csv
 llm:
   provider: mock
+  temperature: 0.75
+  enable_google_search: true
+replay:
+  enabled: true
+  store_dir: shared-replay
 pipeline:
   batch_size: 5
   max_candidates: 10
@@ -39,8 +45,13 @@ output:
     assert cfg.request.country == "India"
     assert cfg.data.mode == "files"
     assert cfg.request.exact_match == ["state", "district"]
+    assert cfg.request.string_exact_match_prune == "to"
     assert cfg.request.relationship == "father_to_child"
     assert cfg.request.reason is True
+    assert cfg.llm.temperature == 0.75
+    assert cfg.llm.enable_google_search is True
+    assert cfg.replay.enabled is True
+    assert cfg.replay.store_dir == "shared-replay"
     assert cfg.source_dir == tmp_path.resolve()
 
 
