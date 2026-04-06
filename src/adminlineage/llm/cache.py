@@ -38,13 +38,38 @@ class SQLiteCache:
             conn.commit()
 
     @staticmethod
-    def make_key(model: str, prompt: str, schema_version: str) -> tuple[str, str]:
+    def make_key(
+        model: str,
+        prompt: str,
+        schema_version: str,
+        *,
+        generation_settings: dict[str, Any] | None = None,
+    ) -> tuple[str, str]:
         prompt_hash = stable_hash(prompt)
-        key = stable_hash({"model": model, "prompt_hash": prompt_hash, "schema": schema_version})
+        key = stable_hash(
+            {
+                "model": model,
+                "prompt_hash": prompt_hash,
+                "schema": schema_version,
+                "generation_settings": generation_settings or {},
+            }
+        )
         return key, prompt_hash
 
-    def get(self, *, model: str, prompt: str, schema_version: str) -> dict[str, Any] | None:
-        key, _ = self.make_key(model=model, prompt=prompt, schema_version=schema_version)
+    def get(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        schema_version: str,
+        generation_settings: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        key, _ = self.make_key(
+            model=model,
+            prompt=prompt,
+            schema_version=schema_version,
+            generation_settings=generation_settings,
+        )
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT response_json FROM llm_cache WHERE key = ?",
@@ -60,10 +85,16 @@ class SQLiteCache:
         model: str,
         prompt: str,
         schema_version: str,
+        generation_settings: dict[str, Any] | None = None,
         response_json: dict[str, Any],
         created_at: str,
     ) -> None:
-        key, prompt_hash = self.make_key(model=model, prompt=prompt, schema_version=schema_version)
+        key, prompt_hash = self.make_key(
+            model=model,
+            prompt=prompt,
+            schema_version=schema_version,
+            generation_settings=generation_settings,
+        )
         payload = json.dumps(response_json, ensure_ascii=True, sort_keys=True)
         with self._connect() as conn:
             conn.execute(

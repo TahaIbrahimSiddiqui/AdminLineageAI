@@ -24,8 +24,10 @@ class MockClient(BaseLLMClient):
         model: str,
         temperature: float,
         seed: int,
+        *,
+        enable_google_search: bool = False,
     ) -> dict[str, Any]:
-        _ = (model, temperature, seed)
+        _ = (model, temperature, seed, enable_google_search)
         self.calls += 1
 
         marker = "INPUT_PAYLOAD_JSON:\n"

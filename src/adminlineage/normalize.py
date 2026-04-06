@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections import Counter
+from typing import Any
 
 import pandas as pd
 
@@ -22,6 +23,29 @@ def canonicalize_name(name: str) -> str:
     value = _PUNCT_RE.sub(" ", value)
     value = _SPACE_RE.sub(" ", value)
     return value.strip()
+
+
+def normalize_match_value(value: Any) -> Any:
+    """Normalize string match keys while preserving non-string scope values."""
+
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        pass
+    if isinstance(value, str):
+        return canonicalize_name(value)
+    return value
+
+
+def normalized_key_frame(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Return normalized comparison keys for the provided columns."""
+
+    if not columns:
+        return pd.DataFrame(index=df.index)
+    return df.loc[:, columns].apply(lambda col: col.map(normalize_match_value))
 
 
 def tokenize(name: str) -> set[str]:
