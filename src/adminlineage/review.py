@@ -60,7 +60,7 @@ def apply_global_flags(
             flags.append("type_needs_review")
         if fan_out.get(row["from_key"], 0) > max_fan_out:
             flags.append("high_fan_out")
-        if row["to_key"] is not None and fan_in.get(row["to_key"], 0) > max_fan_in:
+        if pd.notna(row["to_key"]) and fan_in.get(row["to_key"], 0) > max_fan_in:
             flags.append("high_fan_in")
         flags_column.append(flags)
 

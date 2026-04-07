@@ -9,7 +9,7 @@ import pytest
 from pydantic import BaseModel
 
 from adminlineage.llm.base import BaseLLMClient, QuotaExceededLLMError, TransientLLMError
-from adminlineage.pipeline import run_pipeline
+from adminlineage.pipeline import _normalize_nullable_crosswalk_columns, run_pipeline
 
 
 class SplitOnLargeBatchClient(BaseLLMClient):
@@ -191,6 +191,35 @@ def test_pipeline_surfaces_unrecovered_row_failures_after_transient_retries(
     assert failed_row["to_key"] is None
     assert "Adjudication failed after retries" in failed_row["evidence"]
     assert "server disconnected without sending a response" in failed_row["evidence"]
+
+
+def test_normalize_nullable_crosswalk_columns_converts_missing_targets_to_none():
+    crosswalk = pd.DataFrame(
+        [
+            {
+                "from_key": "from_0",
+                "to_key": "to_0",
+                "to_name": "North Block",
+                "to_canonical_name": "north block",
+                "to_id": "t1",
+            },
+            {
+                "from_key": "from_1",
+                "to_key": float("nan"),
+                "to_name": pd.NA,
+                "to_canonical_name": None,
+                "to_id": float("nan"),
+            },
+        ]
+    )
+
+    normalized = _normalize_nullable_crosswalk_columns(crosswalk)
+    missing_row = normalized.loc[normalized["from_key"] == "from_1"].iloc[0]
+
+    assert missing_row["to_key"] is None
+    assert missing_row["to_name"] is None
+    assert missing_row["to_canonical_name"] is None
+    assert missing_row["to_id"] is None
 
 
 class SpendingCapClient(BaseLLMClient):
