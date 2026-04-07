@@ -38,6 +38,7 @@ class CapturingClient(BaseLLMClient):
         marker = "INPUT_PAYLOAD_JSON:\n"
         payload = json.loads(prompt.split(marker, maxsplit=1)[1].strip())
         self.payloads.append(payload)
+        include_evidence = bool(payload.get("include_evidence", False))
 
         decisions = []
         for item in payload["items"]:
@@ -48,7 +49,6 @@ class CapturingClient(BaseLLMClient):
                     "link_type": "rename",
                     "relationship": "father_to_father",
                     "score": 0.9,
-                    "evidence": "Captured for prompt verification.",
                 }
             else:
                 link = {
@@ -56,8 +56,13 @@ class CapturingClient(BaseLLMClient):
                     "link_type": "no_match",
                     "relationship": "unknown",
                     "score": 0.0,
-                    "evidence": "No candidates available.",
                 }
+            if include_evidence:
+                link["evidence"] = (
+                    "Captured for prompt verification."
+                    if candidates
+                    else "No candidates available."
+                )
             decisions.append({"from_key": item["from_key"], "links": [link]})
 
         response = {"decisions": decisions}
@@ -107,6 +112,7 @@ class CapturingGeminiClient(GeminiClient):
         marker = "INPUT_PAYLOAD_JSON:\n"
         payload = json.loads(prompt.split(marker, maxsplit=1)[1].strip())
         self.payloads.append(payload)
+        include_evidence = bool(payload.get("include_evidence", False))
 
         decisions = []
         for item in payload["items"]:
@@ -117,7 +123,6 @@ class CapturingGeminiClient(GeminiClient):
                     "link_type": "rename",
                     "relationship": "father_to_father",
                     "score": 0.9,
-                    "evidence": "Captured for Gemini prompt verification.",
                 }
             else:
                 link = {
@@ -125,8 +130,13 @@ class CapturingGeminiClient(GeminiClient):
                     "link_type": "no_match",
                     "relationship": "unknown",
                     "score": 0.0,
-                    "evidence": "No candidates available.",
                 }
+            if include_evidence:
+                link["evidence"] = (
+                    "Captured for Gemini prompt verification."
+                    if candidates
+                    else "No candidates available."
+                )
             decisions.append({"from_key": item["from_key"], "links": [link]})
 
         response = {"decisions": decisions}
@@ -170,6 +180,7 @@ class GroundedSequentialClient(BaseLLMClient):
         marker = "INPUT_PAYLOAD_JSON:\n"
         payload = json.loads(prompt.split(marker, maxsplit=1)[1].strip())
         self.json_payloads.append(payload)
+        include_evidence = bool(payload.get("include_evidence", False))
 
         decisions = []
         for item in payload["items"]:
@@ -179,7 +190,6 @@ class GroundedSequentialClient(BaseLLMClient):
                     "link_type": "rename",
                     "relationship": "father_to_father",
                     "score": 0.95,
-                    "evidence": "Confident shortlist match.",
                 }
             elif enable_google_search:
                 link = {
@@ -187,7 +197,6 @@ class GroundedSequentialClient(BaseLLMClient):
                     "link_type": "rename",
                     "relationship": "father_to_father",
                     "score": 0.88,
-                    "evidence": "Grounded verification supported the shortlist candidate.",
                 }
             else:
                 link = {
@@ -195,8 +204,14 @@ class GroundedSequentialClient(BaseLLMClient):
                     "link_type": "unknown",
                     "relationship": "unknown",
                     "score": 0.35,
-                    "evidence": "Ambiguous without grounded verification.",
                 }
+            if include_evidence:
+                if item["from_key"] == "from_0":
+                    link["evidence"] = "Confident shortlist match."
+                elif enable_google_search:
+                    link["evidence"] = "Grounded verification supported the shortlist candidate."
+                else:
+                    link["evidence"] = "Ambiguous without grounded verification."
             decisions.append({"from_key": item["from_key"], "links": [link]})
 
         response = {"decisions": decisions}
@@ -259,6 +274,7 @@ def test_pipeline_keeps_batch_adjudication_structured_when_search_is_enabled(
     assert client.search_flags == [True, True, True]
     assert client.text_search_flags == []
     assert client.prompts
+    assert all(payload["include_evidence"] is False for payload in client.payloads)
     assert all(
         "If grounding tools are available, you may use them only to verify names, geography,"
         in prompt

@@ -30,6 +30,7 @@ class SplitOnLargeBatchClient(BaseLLMClient):
         marker = "INPUT_PAYLOAD_JSON:\n"
         payload = json.loads(prompt.split(marker, maxsplit=1)[1].strip())
         items = payload["items"]
+        include_evidence = bool(payload.get("include_evidence", False))
         self.batch_sizes.append(len(items))
 
         if len(items) > 1:
@@ -47,12 +48,13 @@ class SplitOnLargeBatchClient(BaseLLMClient):
                             "link_type": "rename",
                             "relationship": "father_to_father",
                             "score": 0.95,
-                            "evidence": "Recovered after splitting batch.",
                         }
                     ],
                 }
             ]
         }
+        if include_evidence:
+            response["decisions"][0]["links"][0]["evidence"] = "Recovered after splitting batch."
         if isinstance(schema, type) and issubclass(schema, BaseModel):
             return schema.model_validate(response).model_dump()
         return response
@@ -77,6 +79,7 @@ def test_pipeline_runs_in_single_row_mode_without_batch_split_retries(
         id_col_from="unit_id",
         id_col_to="unit_id",
         relationship="auto",
+        evidence=True,
         reason=False,
         model="gemini-3.1-flash-lite-preview",
         batch_size=2,
@@ -113,6 +116,7 @@ class FlakySingleRowClient(BaseLLMClient):
         marker = "INPUT_PAYLOAD_JSON:\n"
         payload = json.loads(prompt.split(marker, maxsplit=1)[1].strip())
         items = payload["items"]
+        include_evidence = bool(payload.get("include_evidence", False))
         self.batch_sizes.append(len(items))
 
         if len(items) > 1:
@@ -134,12 +138,13 @@ class FlakySingleRowClient(BaseLLMClient):
                             "link_type": "rename",
                             "relationship": "father_to_father",
                             "score": 0.95,
-                            "evidence": "Recovered after splitting batch.",
                         }
                     ],
                 }
             ]
         }
+        if include_evidence:
+            response["decisions"][0]["links"][0]["evidence"] = "Recovered after splitting batch."
         if isinstance(schema, type) and issubclass(schema, BaseModel):
             return schema.model_validate(response).model_dump()
         return response
@@ -164,6 +169,7 @@ def test_pipeline_surfaces_unrecovered_row_failures_after_transient_retries(
         id_col_from="unit_id",
         id_col_to="unit_id",
         relationship="auto",
+        evidence=True,
         reason=False,
         model="gemini-3.1-flash-lite-preview",
         batch_size=2,

@@ -38,6 +38,7 @@ class MockClient(BaseLLMClient):
 
         decisions: list[dict[str, Any]] = []
         requested_relationship = payload.get("requested_relationship", "auto")
+        include_evidence = bool(payload.get("include_evidence", False))
         include_reason = bool(payload.get("include_reason", False))
         for item in payload.get("items", []):
             candidates = item.get("candidates", [])
@@ -48,9 +49,10 @@ class MockClient(BaseLLMClient):
                         "link_type": "no_match",
                         "relationship": "unknown",
                         "score": 0.0,
-                        "evidence": "No candidates available in constrained group.",
                     }
                 ]
+                if include_evidence:
+                    links[0]["evidence"] = "No candidates available in constrained group."
             else:
                 first = candidates[0]
                 link_type = "rename"
@@ -69,11 +71,12 @@ class MockClient(BaseLLMClient):
                             first["score"],
                             self.default_score if link_type == "rename" else 0.4,
                         ),
-                        "evidence": (
-                            "Best lexical and contextual candidate within exact-match constraints."
-                        ),
                     }
                 ]
+                if include_evidence:
+                    links[0]["evidence"] = (
+                        "Best lexical and contextual candidate within exact-match constraints."
+                    )
             if include_reason:
                 for link in links:
                     link["reason"] = (

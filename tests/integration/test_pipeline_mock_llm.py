@@ -45,6 +45,7 @@ def test_pipeline_end_to_end_with_mock(sample_df_from, sample_df_to, tmp_path: P
         "reason",
         "run_id",
     }.issubset(crosswalk.columns)
+    assert "evidence" not in crosswalk.columns
     assert crosswalk["reason"].eq("").all()
     assert metadata["run_id"]
     assert metadata["request"]["temperature"] == 0.75
@@ -86,6 +87,36 @@ def test_pipeline_reason_mode_with_mock(sample_df_from, sample_df_to, tmp_path: 
 
     assert crosswalk["reason"].str.len().gt(0).all()
     assert set(crosswalk["relationship"]) == {"father_to_child"}
+    assert "evidence" not in crosswalk.columns
+
+
+def test_pipeline_evidence_mode_with_mock(sample_df_from, sample_df_to, tmp_path: Path):
+    client = MockClient(default_score=0.91)
+
+    crosswalk, _ = run_pipeline(
+        sample_df_from,
+        sample_df_to,
+        country="India",
+        year_from=1951,
+        year_to=2011,
+        map_col_from="subdistrict",
+        map_col_to="subdistrict",
+        exact_match=["state", "district"],
+        id_col_from="unit_id",
+        id_col_to="unit_id",
+        relationship="auto",
+        evidence=True,
+        reason=False,
+        model="gemini-3.1-flash-lite-preview",
+        batch_size=2,
+        max_candidates=3,
+        output_dir=tmp_path / "outputs_evidence",
+        llm_client=client,
+        output_write_parquet=False,
+    )
+
+    assert "evidence" in crosswalk.columns
+    assert crosswalk["evidence"].str.len().gt(0).all()
 
 
 def test_pipeline_writes_csv_fallback_when_parquet_fails(

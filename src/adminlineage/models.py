@@ -39,6 +39,7 @@ class MappingRequest(BaseModel):
     map_col_to: str
     relationship: RequestRelationshipType = "auto"
     string_exact_match_prune: ExactStringPruneMode = "none"
+    evidence: bool = False
     reason: bool = False
     model: str = "gemini-3.1-flash-lite-preview"
     batch_size: int = 25
@@ -91,7 +92,7 @@ class CandidateLink(BaseModel):
     constraints_passed: dict[str, bool] = Field(default_factory=dict)
 
 
-class LLMChosenLinkNoReason(BaseModel):
+class LLMChosenLinkBare(BaseModel):
     """Single to-unit decision returned by LLM for one from-unit."""
 
     model_config = ConfigDict(extra="forbid")
@@ -100,22 +101,42 @@ class LLMChosenLinkNoReason(BaseModel):
     link_type: LinkType
     relationship: RelationshipType
     score: float = Field(ge=0.0, le=1.0)
+
+
+class LLMChosenLinkWithEvidence(LLMChosenLinkBare):
+    """LLM response item that includes a short evidence summary."""
+
     evidence: str
 
 
-class LLMChosenLinkWithReason(LLMChosenLinkNoReason):
+class LLMChosenLinkWithReason(LLMChosenLinkBare):
     """Reason-enabled LLM response item."""
 
     reason: str
 
 
-class LLMFromDecisionNoReason(BaseModel):
+class LLMChosenLinkWithEvidenceAndReason(LLMChosenLinkWithEvidence):
+    """LLM response item that includes both evidence and reason."""
+
+    reason: str
+
+
+class LLMFromDecisionBare(BaseModel):
     """LLM decisions for one from-unit."""
 
     model_config = ConfigDict(extra="forbid")
 
     from_key: str
-    links: list[LLMChosenLinkNoReason]
+    links: list[LLMChosenLinkBare]
+
+
+class LLMFromDecisionWithEvidence(BaseModel):
+    """LLM decisions for one from-unit when evidence summaries are enabled."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    from_key: str
+    links: list[LLMChosenLinkWithEvidence]
 
 
 class LLMFromDecisionWithReason(BaseModel):
@@ -127,12 +148,29 @@ class LLMFromDecisionWithReason(BaseModel):
     links: list[LLMChosenLinkWithReason]
 
 
-class LLMBatchResponseNoReason(BaseModel):
-    """Strict JSON structure expected from Gemini batch adjudication."""
+class LLMFromDecisionWithEvidenceAndReason(BaseModel):
+    """LLM decisions for one from-unit with evidence and reasons enabled."""
 
     model_config = ConfigDict(extra="forbid")
 
-    decisions: list[LLMFromDecisionNoReason]
+    from_key: str
+    links: list[LLMChosenLinkWithEvidenceAndReason]
+
+
+class LLMBatchResponseBare(BaseModel):
+    """Strict JSON structure expected from Gemini without evidence or reason."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decisions: list[LLMFromDecisionBare]
+
+
+class LLMBatchResponseWithEvidence(BaseModel):
+    """Strict JSON structure expected from Gemini when evidence is enabled."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decisions: list[LLMFromDecisionWithEvidence]
 
 
 class LLMBatchResponseWithReason(BaseModel):
@@ -143,10 +181,30 @@ class LLMBatchResponseWithReason(BaseModel):
     decisions: list[LLMFromDecisionWithReason]
 
 
-def get_batch_response_model(include_reason: bool) -> type[BaseModel]:
+class LLMBatchResponseWithEvidenceAndReason(BaseModel):
+    """Strict JSON structure expected from Gemini when evidence and reason are enabled."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decisions: list[LLMFromDecisionWithEvidenceAndReason]
+
+
+# Backward-compatible aliases for the older evidence-required response names.
+LLMChosenLinkNoReason = LLMChosenLinkWithEvidence
+LLMFromDecisionNoReason = LLMFromDecisionWithEvidence
+LLMBatchResponseNoReason = LLMBatchResponseWithEvidence
+
+
+def get_batch_response_model(*, include_reason: bool, include_evidence: bool) -> type[BaseModel]:
     """Return the strict response model for the requested reason mode."""
 
-    return LLMBatchResponseWithReason if include_reason else LLMBatchResponseNoReason
+    if include_evidence and include_reason:
+        return LLMBatchResponseWithEvidenceAndReason
+    if include_evidence:
+        return LLMBatchResponseWithEvidence
+    if include_reason:
+        return LLMBatchResponseWithReason
+    return LLMBatchResponseBare
 
 
 class EvolutionKey(BaseModel):

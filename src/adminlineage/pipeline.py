@@ -33,7 +33,7 @@ from .replay import (
     resolve_replay_store_dir,
 )
 from .review import apply_global_flags, build_review_queue, coverage_summary, summarize_counts
-from .schema import CROSSWALK_BASE_COLUMNS, RELATIONSHIP_TYPES
+from .schema import OUTPUT_SCHEMA_VERSION, RELATIONSHIP_TYPES, get_crosswalk_base_columns
 from .utils import build_run_id, chunked, ensure_dir, now_iso, sanitize_name
 from .validation import collapse_duplicate_match_keys, validate_inputs_data
 
@@ -330,6 +330,7 @@ def _build_exact_match_links(
     exact_matches: dict[str, str],
     *,
     requested_relationship: RequestRelationshipType,
+    evidence: bool,
     reason: bool,
 ) -> dict[str, list[dict[str, Any]]]:
     relationship_value = (
@@ -337,7 +338,7 @@ def _build_exact_match_links(
         if requested_relationship != "auto"
         else "father_to_father"
     )
-    evidence = "Resolved by normalized exact string match within the current scope."
+    evidence_text = "Resolved by normalized exact string match within the current scope."
     reason_text = "Resolved by normalized exact string match within the current scope."
 
     exact_links: dict[str, list[dict[str, Any]]] = {}
@@ -347,8 +348,9 @@ def _build_exact_match_links(
             "link_type": "rename",
             "relationship": relationship_value,
             "score": 1.0,
-            "evidence": evidence,
         }
+        if evidence:
+            link["evidence"] = evidence_text
         if reason:
             link["reason"] = reason_text
         exact_links[from_key] = [link]
@@ -478,7 +480,7 @@ def _build_run_metadata(
     return {
         "run_id": run_id,
         "schema_version": request.schema_version,
-        "output_schema_version": "2.0.0",
+        "output_schema_version": OUTPUT_SCHEMA_VERSION,
         "request": request.model_dump(),
         "counts": counts,
         "coverage_by_group": coverage_summary(crosswalk, exact_match),
@@ -661,6 +663,7 @@ def run_pipeline(
     extra_context_cols: list[str] | None = None,
     relationship: RequestRelationshipType = "auto",
     string_exact_match_prune: ExactStringPruneMode = "none",
+    evidence: bool = False,
     reason: bool = False,
     model: str = "gemini-3.1-flash-lite-preview",
     gemini_api_key_env: str = "GEMINI_API_KEY",
@@ -716,6 +719,7 @@ def run_pipeline(
         map_col_to=map_col_to_effective,
         relationship=relationship,
         string_exact_match_prune=string_exact_match_prune,
+        evidence=evidence,
         reason=reason,
         model=model,
         batch_size=batch_size,
@@ -891,6 +895,7 @@ def run_pipeline(
     exact_match_links = _build_exact_match_links(
         exact_match_info["from_to"],
         requested_relationship=relationship,
+        evidence=evidence,
         reason=reason,
     )
     ai_from_work, ai_to_work = _ai_workframes_after_exact_prune(
@@ -950,7 +955,10 @@ def run_pipeline(
         len(pending_from_keys),
     )
 
-    response_model = get_batch_response_model(include_reason=reason)
+    response_model = get_batch_response_model(
+        include_reason=reason,
+        include_evidence=evidence,
+    )
 
     def _candidate_payloads_for_key(
         from_key: str,
@@ -1029,9 +1037,12 @@ def run_pipeline(
                     "link_type": "no_match",
                     "relationship": "unknown",
                     "score": 0.0,
-                    "evidence": "No shortlist candidates available in the constrained group.",
                 }
             ]
+            if evidence:
+                links[0]["evidence"] = (
+                    "No shortlist candidates available in the constrained group."
+                )
             if reason:
                 links[0]["reason"] = ""
             append_jsonl(
@@ -1060,6 +1071,7 @@ def run_pipeline(
             year_to=year_to,
             exact_match=exact_match,
             relationship=relationship,
+            include_evidence=evidence,
             include_reason=reason,
             batch_items=batch_items,
             allow_external_grounding=grounding_enabled,
@@ -1095,9 +1107,10 @@ def run_pipeline(
                             "link_type": "unknown",
                             "relationship": "unknown",
                             "score": 0.0,
-                            "evidence": "LLM omitted this item in batch response.",
                         }
                     ]
+                    if evidence:
+                        links[0]["evidence"] = "LLM omitted this item in batch response."
                     if reason:
                         links[0]["reason"] = ""
                 else:
@@ -1109,9 +1122,10 @@ def run_pipeline(
                                 "link_type": "no_match",
                                 "relationship": "unknown",
                                 "score": 0.0,
-                                "evidence": "No valid link selected by model.",
                             }
                         ]
+                        if evidence:
+                            links[0]["evidence"] = "No valid link selected by model."
                         if reason:
                             links[0]["reason"] = ""
 
@@ -1253,14 +1267,16 @@ def run_pipeline(
                         "link_type": "unknown",
                         "relationship": "unknown",
                         "score": 0.0,
-                        "evidence": (
-                            f"Adjudication failed after retries: {error_text}"
-                            if error_record is not None
-                            else error_text
-                        ),
-                        "reason": "",
                     }
                 ]
+                if evidence:
+                    links[0]["evidence"] = (
+                        f"Adjudication failed after retries: {error_text}"
+                        if error_record is not None
+                        else error_text
+                    )
+                if reason:
+                    links[0]["reason"] = ""
 
             allowed_to_keys = {item["to_key"] for item in candidate_map.get(from_key, [])}
 
@@ -1276,13 +1292,14 @@ def run_pipeline(
 
                 link_type = str(link.get("link_type", "unknown"))
                 score = float(link.get("score", 0.0))
-                evidence = str(link.get("evidence", "")).strip()
+                evidence_text = str(link.get("evidence", "")).strip() if evidence else ""
                 reason_text = str(link.get("reason", "")).strip() if reason else ""
 
                 if not candidate_membership:
                     link_type = "unknown"
                     score = 0.0
-                    evidence = "Model selected a target outside the provided candidates."
+                    if evidence:
+                        evidence_text = "Model selected a target outside the provided candidates."
                     if reason and not reason_text:
                         reason_text = (
                             "The chosen target was not present in the candidate list."
@@ -1316,8 +1333,6 @@ def run_pipeline(
                         link_type=link_type,
                         to_key=to_key,
                     ),
-                    "evidence": evidence[:400],
-                    "reason": reason_text[:800] if reason else "",
                     "country": country,
                     "year_from": year_from,
                     "year_to": year_to,
@@ -1329,6 +1344,9 @@ def run_pipeline(
                         "exact_match": exact_match_passed,
                     },
                 }
+                if evidence:
+                    row["evidence"] = evidence_text[:400]
+                row["reason"] = reason_text[:800] if reason else ""
                 row.update(exact_match_payload)
                 rows.append(row)
         return rows
@@ -1338,13 +1356,14 @@ def run_pipeline(
         latest_error: dict[str, dict[str, Any]],
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         crosswalk = pd.DataFrame(_materialize_rows(latest_success, latest_error))
-        for col in CROSSWALK_BASE_COLUMNS:
+        crosswalk_base_columns = get_crosswalk_base_columns(include_evidence=evidence)
+        for col in crosswalk_base_columns:
             if col not in crosswalk.columns:
-                crosswalk[col] = "" if col in {"evidence", "reason"} else None
+                crosswalk[col] = "" if col == "reason" else None
 
         crosswalk = apply_global_flags(crosswalk, low_score_threshold=review_score_threshold)
         exact_match_order = exact_match.copy()
-        preferred_order = CROSSWALK_BASE_COLUMNS + exact_match_order + [
+        preferred_order = crosswalk_base_columns + exact_match_order + [
             "review_flags",
             "review_reason",
         ]
@@ -1376,16 +1395,26 @@ def run_pipeline(
         )
     error_from_keys = sorted(set(latest_error) - set(latest_success))
     if error_from_keys:
-        warnings.append(
+        failure_warning = (
             f"Adjudication still failed for {len(error_from_keys)} source rows after retries. "
-            "Those rows were kept with error evidence so you can review or rerun them."
         )
+        if evidence:
+            failure_warning += (
+                "Those rows were kept with error evidence so you can review or rerun them."
+            )
+        else:
+            failure_warning += "Those rows were kept for review or rerun."
+        warnings.append(failure_warning)
     if grounding_failed_rows:
-        warnings.append(
+        grounding_warning = (
             "Structured grounded adjudication did not complete cleanly for "
-            f"{grounding_failed_rows} source rows; unresolved rows were kept with error "
-            "evidence for review."
+            f"{grounding_failed_rows} source rows; unresolved rows were kept "
         )
+        if evidence:
+            grounding_warning += "with error evidence for review."
+        else:
+            grounding_warning += "for review."
+        warnings.append(grounding_warning)
 
     crosswalk, review_queue = _build_crosswalk_and_review_queue(latest_success, latest_error)
     if replay_dir is not None and error_from_keys:

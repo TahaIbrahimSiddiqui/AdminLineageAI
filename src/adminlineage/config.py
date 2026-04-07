@@ -31,6 +31,7 @@ class RequestConfig(BaseModel):
         "child_to_child",
     ] = "auto"
     string_exact_match_prune: Literal["none", "from", "to"] = "none"
+    evidence: bool = False
     reason: bool = False
 
 

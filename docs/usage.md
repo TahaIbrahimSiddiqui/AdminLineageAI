@@ -25,6 +25,7 @@ Common optional arguments:
 | `id_col_to` | `str | None` | `None` | Target ID column |
 | `extra_context_cols` | `list[str] | None` | `None` | Extra columns included in the prompt payload |
 | `relationship` | `str` | `auto` | Relationship mode |
+| `evidence` | `bool` | `False` | Ask the model for a short factual summary and include the `evidence` column |
 | `reason` | `bool` | `False` | Ask the model for a fuller explanation |
 | `model` | `str` | `gemini-3.1-flash-lite-preview` | Gemini model |
 | `gemini_api_key_env` | `str` | `GEMINI_API_KEY` | Environment variable name for the API key |
@@ -90,7 +91,7 @@ Each row represents one proposed link from period A to period B.
 | `score` | Confidence in `[0,1]` |
 | `link_type` | `rename|split|merge|transfer|no_match|unknown` |
 | `relationship` | Hierarchical relationship for the link |
-| `evidence` | Short factual summary |
+| `evidence` | Short factual summary, included only when `evidence=True` |
 | `reason` | Optional fuller explanation |
 | exact-match columns | Copied context fields from the request |
 | `country`, `year_from`, `year_to` | Request metadata |

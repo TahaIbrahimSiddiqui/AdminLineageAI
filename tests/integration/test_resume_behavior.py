@@ -109,6 +109,7 @@ class OneRowFailsOnceClient(BaseLLMClient):
         self.calls += 1
         marker = "INPUT_PAYLOAD_JSON:\n"
         payload = json.loads(prompt.split(marker, maxsplit=1)[1].strip())
+        include_evidence = bool(payload.get("include_evidence", False))
         decisions = []
         for item in payload["items"]:
             if item["from_key"] == "from_0":
@@ -128,11 +129,12 @@ class OneRowFailsOnceClient(BaseLLMClient):
                             "link_type": "rename",
                             "relationship": "father_to_father",
                             "score": 0.9,
-                            "evidence": "Recovered on retry.",
                         }
                     ],
                 }
             )
+            if include_evidence:
+                decisions[-1]["links"][0]["evidence"] = "Recovered on retry."
         return {"decisions": decisions}
 
 
@@ -157,6 +159,7 @@ def test_resume_retries_rows_that_only_have_error_records(
         batch_size=2,
         max_candidates=3,
         output_dir=output_dir,
+        evidence=True,
         output_write_parquet=False,
     )
 

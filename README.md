@@ -25,7 +25,7 @@ The main output is an `evolution_key.csv` file. Each row is one proposed link fr
 
 - `link_type` such as `rename`, `split`, `merge`, `transfer`, `no_match`, or `unknown`
 - `relationship` such as `father_to_father` or `father_to_child`
-- a short `evidence` summary
+- an optional short `evidence` summary when `evidence=True`
 - an optional `reason` field if you explicitly turn it on
 - `review_flags` and `review_reason` for manual QA
 
@@ -74,6 +74,7 @@ crosswalk_df, metadata = adminlineage.build_evolution_key(
     id_col_from="unit_id",
     id_col_to="unit_id",
     relationship="auto",
+    evidence=False,
     reason=False,
     model="gemini-3.1-flash-lite-preview",
     gemini_api_key_env="GEMINI_API_KEY",
@@ -111,6 +112,7 @@ request:
   id_col_from: unit_id
   id_col_to: unit_id
   relationship: auto
+  evidence: false
   reason: false
 
 data:
@@ -151,6 +153,7 @@ Common optional arguments:
 | `id_col_to` | Stable ID column in `df_to` |
 | `extra_context_cols` | Extra columns included in the model payload |
 | `relationship` | `auto` by default, or one of the explicit relationship modes |
+| `evidence` | `False` by default; when `True`, asks the model for a short factual summary |
 | `reason` | `False` by default; when `True`, asks the model for a fuller explanation |
 | `model` | Gemini model name |
 | `gemini_api_key_env` | Environment variable name containing the API key |
@@ -208,6 +211,24 @@ Allowed values:
 
 When you use `auto`, the model infers the relationship and writes it to the output. If you choose one explicit value, matched links are constrained to that relationship and the same value is written into the result rows.
 
+## Optional `evidence`
+
+`evidence` is off by default:
+
+```python
+evidence=False
+```
+
+That keeps the structured output smaller and avoids paying for short factual summaries unless you want them.
+
+If you set:
+
+```python
+evidence=True
+```
+
+the package asks the model for a short factual summary and includes an `evidence` column in the crosswalk output.
+
 ## Optional `reason`
 
 `reason` is off by default:
@@ -251,7 +272,7 @@ Key columns in the crosswalk:
 | `score` | Confidence score in `[0,1]` |
 | `link_type` | Match type |
 | `relationship` | Hierarchical relationship for the link |
-| `evidence` | Short factual summary |
+| `evidence` | Short factual summary, included only when `evidence=True` |
 | `reason` | Optional fuller explanation |
 | `constraints_passed` | Checks like `candidate_membership` and `exact_match` |
 | each `exact_match` column | Copied into the output for context |
@@ -290,6 +311,7 @@ This is a model-assisted workflow, not an automatic truth machine. You still nee
 
 ### The results feel too thin
 
+- Turn on `evidence=True`
 - Turn on `reason=True`
 - Add a few `extra_context_cols`
 - Review borderline rows in `review_queue.csv`

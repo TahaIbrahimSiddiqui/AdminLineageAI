@@ -17,10 +17,11 @@
    - Keep the top `max_candidates`.
 
 4. **Gemini Adjudication**
-   - Batch source units and send compact JSON payloads with context and shortlists.
+   - Send compact JSON payloads with context and shortlists, one source row at a time.
    - Require strict JSON output.
    - Validate responses with pydantic.
    - Retry transient failures and attempt one repair prompt if JSON or schema parsing fails.
+   - Optionally request a short `evidence` field when the user enables it.
    - Optionally request a fuller `reason` field when the user enables it.
 
 5. **Global Checks**
@@ -54,11 +55,12 @@ The batch prompt requires:
 - `to_key` limited to the supplied candidates or `null`
 - separate `link_type` and `relationship` fields
 - `unknown` or `no_match` when evidence is weak
+- optional `evidence` only when requested
 - optional `reason` only when requested
 
 ## Schema Versioning
 
-- Prompt schema version: `2.0.0`
-- Output schema version: `2.0.0`
+- Prompt schema version: `2.3.0`
+- Output schema version: `2.1.0`
 
 Both versions are persisted in run metadata.

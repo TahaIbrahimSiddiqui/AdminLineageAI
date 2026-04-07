@@ -61,6 +61,7 @@ def _run_from_config(config_path: str) -> int:
         extra_context_cols=cfg.request.extra_context_cols,
         relationship=cfg.request.relationship,
         string_exact_match_prune=cfg.request.string_exact_match_prune,
+        evidence=cfg.request.evidence,
         reason=cfg.request.reason,
         model=cfg.llm.model,
         gemini_api_key_env=cfg.llm.gemini_api_key_env,

@@ -15,6 +15,7 @@ def build_batch_prompt(
     year_to: int | str,
     exact_match: list[str],
     relationship: str,
+    include_evidence: bool,
     include_reason: bool,
     batch_items: list[dict[str, Any]],
     allow_external_grounding: bool = False,
@@ -28,6 +29,7 @@ def build_batch_prompt(
         "year_to": year_to,
         "exact_match": exact_match,
         "requested_relationship": relationship,
+        "include_evidence": include_evidence,
         "include_reason": include_reason,
         "items": batch_items,
     }
@@ -36,21 +38,25 @@ def build_batch_prompt(
         '{"decisions":[{"from_key":"...","links":[{"to_key":"candidate_to_key_or_null",'
         '"link_type":"rename|split|merge|transfer|no_match|unknown",'
         '"relationship":"father_to_father|father_to_child|child_to_father|child_to_child|unknown",'
-        '"score":0.0,"evidence":"..."}]}]}'
+        '"score":0.0'
     )
+    if include_evidence:
+        response_fields += ',"evidence":"..."'
     if include_reason:
-        response_fields = (
-            '{"decisions":[{"from_key":"...","links":[{"to_key":"candidate_to_key_or_null",'
-            '"link_type":"rename|split|merge|transfer|no_match|unknown",'
-            '"relationship":"father_to_father|father_to_child|child_to_father|child_to_child|unknown",'
-            '"score":0.0,"evidence":"...","reason":"..."}]}]}'
-        )
+        response_fields += ',"reason":"..."'
+    response_fields += "}]}]}"
 
+    evidence_rule = (
+        "10) Include a short `evidence` field with factual summaries only. "
+        "No chain-of-thought.\n"
+        if include_evidence
+        else "10) Do not include an `evidence` field in the JSON.\n"
+    )
     reason_rule = (
-        "8) Include a short `reason` field with 1-3 factual sentences. "
+        "11) Include a short `reason` field with 1-3 factual sentences. "
         "It must explain the match without chain-of-thought.\n"
         if include_reason
-        else "8) Do not include a `reason` field in the JSON.\n"
+        else "11) Do not include a `reason` field in the JSON.\n"
     )
 
     grounding_rule = (
@@ -81,9 +87,9 @@ def build_batch_prompt(
         "Use one of father_to_father, father_to_child, child_to_father, "
         "child_to_child, or unknown. If requested_relationship is not auto, use that value "
         "for matched links. For unknown or no_match, use relationship=unknown.\n"
+        f"{evidence_rule}"
         f"{reason_rule}"
-        "10) Evidence must be short factual summaries, no chain-of-thought.\n"
-        "11) If search is inconclusive, prefer unknown or no_match.\n\n"
+        "12) If search is inconclusive, prefer unknown or no_match.\n\n"
         "Required response JSON:\n"
         f"{response_fields}\n\n"
         "INPUT_PAYLOAD_JSON:\n"

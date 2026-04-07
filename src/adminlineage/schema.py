@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-OUTPUT_SCHEMA_VERSION = "2.0.0"
-PROMPT_SCHEMA_VERSION = "2.2.0"
+OUTPUT_SCHEMA_VERSION = "2.1.0"
+PROMPT_SCHEMA_VERSION = "2.3.0"
 
 LINK_TYPES = (
     "rename",
@@ -30,7 +30,7 @@ REQUEST_RELATIONSHIP_TYPES = (
     "child_to_child",
 )
 
-CROSSWALK_BASE_COLUMNS = [
+_CROSSWALK_COLUMNS_BEFORE_EXPLANATIONS = [
     "from_name",
     "to_name",
     "from_canonical_name",
@@ -40,8 +40,9 @@ CROSSWALK_BASE_COLUMNS = [
     "score",
     "link_type",
     "relationship",
-    "evidence",
-    "reason",
+]
+
+_CROSSWALK_COLUMNS_AFTER_EXPLANATIONS = [
     "country",
     "year_from",
     "year_to",
@@ -52,13 +53,48 @@ CROSSWALK_BASE_COLUMNS = [
 ]
 
 
-def get_output_schema_definition() -> dict:
+def get_crosswalk_base_columns(*, include_evidence: bool) -> list[str]:
+    """Return the ordered base crosswalk columns for one run."""
+
+    columns = list(_CROSSWALK_COLUMNS_BEFORE_EXPLANATIONS)
+    if include_evidence:
+        columns.append("evidence")
+    columns.append("reason")
+    columns.extend(_CROSSWALK_COLUMNS_AFTER_EXPLANATIONS)
+    return columns
+
+
+def get_output_schema_definition(*, include_evidence: bool = False) -> dict:
     """Return a machine-readable output schema definition."""
+    crosswalk_columns = get_crosswalk_base_columns(include_evidence=include_evidence)
+    required_columns = [
+        "from_name",
+        "from_canonical_name",
+        "from_id",
+        "score",
+        "link_type",
+        "relationship",
+        "reason",
+        "country",
+        "year_from",
+        "year_to",
+        "run_id",
+        "from_key",
+        "constraints_passed",
+    ]
+    if include_evidence:
+        required_columns.insert(6, "evidence")
+
     return {
         "schema_version": OUTPUT_SCHEMA_VERSION,
-        "crosswalk_columns": CROSSWALK_BASE_COLUMNS,
+        "crosswalk_columns": crosswalk_columns,
         "link_type_enum": list(LINK_TYPES),
         "relationship_enum": list(RELATIONSHIP_TYPES),
+        "conditional_columns": {
+            "evidence": "Included only when request.evidence is true.",
+            "reason": "Always present; empty unless request.reason is true.",
+        },
+        "required_output_columns": required_columns,
         "notes": {
             "exact_match_columns": "Appended dynamically from request.exact_match",
             "constraints_passed": "JSON object serialized as dict in DataFrame cells",

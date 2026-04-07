@@ -28,6 +28,7 @@ def test_build_evolution_key_forwards_runtime_options(monkeypatch):
         map_col_from="district_name",
         map_col_to="District",
         string_exact_match_prune="from",
+        evidence=True,
         output_dir="custom_outputs",
         temperature=0.75,
         enable_google_search=True,
@@ -40,6 +41,7 @@ def test_build_evolution_key_forwards_runtime_options(monkeypatch):
     assert captured["df_from"] is df_from
     assert captured["df_to"] is df_to
     assert kwargs["string_exact_match_prune"] == "from"
+    assert kwargs["evidence"] is True
     assert kwargs["output_dir"] == "custom_outputs"
     assert kwargs["temperature"] == 0.75
     assert kwargs["enable_google_search"] is True

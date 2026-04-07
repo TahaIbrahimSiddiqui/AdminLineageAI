@@ -32,6 +32,7 @@ class GroundedReplayClient(BaseLLMClient):
         _ = (model, temperature, seed, enable_google_search)
         self.calls += 1
         payload = json.loads(prompt.split("INPUT_PAYLOAD_JSON:\n", maxsplit=1)[1].strip())
+        include_evidence = bool(payload.get("include_evidence", False))
         item = payload["items"][0]
         if "grounding_context" in item:
             link = {
@@ -39,7 +40,6 @@ class GroundedReplayClient(BaseLLMClient):
                 "link_type": "rename",
                 "relationship": "father_to_father",
                 "score": 0.92,
-                "evidence": "Grounded replay test match.",
             }
         else:
             link = {
@@ -47,8 +47,13 @@ class GroundedReplayClient(BaseLLMClient):
                 "link_type": "unknown",
                 "relationship": "unknown",
                 "score": 0.35,
-                "evidence": "Needs grounded verification.",
             }
+        if include_evidence:
+            link["evidence"] = (
+                "Grounded replay test match."
+                if "grounding_context" in item
+                else "Needs grounded verification."
+            )
         response = {
             "decisions": [
                 {
