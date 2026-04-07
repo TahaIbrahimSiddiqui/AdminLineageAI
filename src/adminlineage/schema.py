@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 OUTPUT_SCHEMA_VERSION = "2.0.0"
-PROMPT_SCHEMA_VERSION = "2.0.0"
+PROMPT_SCHEMA_VERSION = "2.2.0"
 
 LINK_TYPES = (
     "rename",

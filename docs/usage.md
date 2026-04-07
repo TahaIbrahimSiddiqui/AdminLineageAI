@@ -26,9 +26,9 @@ Common optional arguments:
 | `extra_context_cols` | `list[str] | None` | `None` | Extra columns included in the prompt payload |
 | `relationship` | `str` | `auto` | Relationship mode |
 | `reason` | `bool` | `False` | Ask the model for a fuller explanation |
-| `model` | `str` | `gemini-2.5-pro` | Gemini model |
+| `model` | `str` | `gemini-3.1-flash-lite-preview` | Gemini model |
 | `gemini_api_key_env` | `str` | `GEMINI_API_KEY` | Environment variable name for the API key |
-| `batch_size` | `int` | `25` | LLM adjudication batch size |
+| `batch_size` | `int` | `25` | Compatibility setting; live Gemini runs execute sequentially |
 | `max_candidates` | `int` | `15` | Candidate shortlist size |
 | `seed` | `int` | `42` | Deterministic seed |
 

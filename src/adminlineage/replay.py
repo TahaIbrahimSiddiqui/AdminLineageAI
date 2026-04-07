@@ -14,6 +14,7 @@ from .utils import ensure_dir, now_iso, stable_hash
 _CROSSWALK_JSON = "crosswalk.records.json"
 _REVIEW_QUEUE_JSON = "review_queue.records.json"
 _LINKS_RAW_JSONL = "links_raw.jsonl"
+_GROUNDING_NOTES_JSONL = "grounding_notes.jsonl"
 _MANIFEST_JSON = "replay_manifest.json"
 
 
@@ -152,6 +153,7 @@ def publish_replay_bundle(
     crosswalk: pd.DataFrame,
     review_queue: pd.DataFrame,
     links_raw_path: str | Path,
+    grounding_notes_path: str | Path | None = None,
 ) -> None:
     """Persist a canonical replay bundle after a clean live run."""
 
@@ -175,6 +177,10 @@ def publish_replay_bundle(
         encoding="utf-8",
     )
     shutil.copy2(links_raw_path, replay_dir / _LINKS_RAW_JSONL)
+    if grounding_notes_path is not None:
+        grounding_notes_path = Path(grounding_notes_path)
+        if grounding_notes_path.exists():
+            shutil.copy2(grounding_notes_path, replay_dir / _GROUNDING_NOTES_JSONL)
     (replay_dir / _MANIFEST_JSON).write_text(
         json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=True),
         encoding="utf-8",
@@ -192,6 +198,7 @@ def load_replay_bundle(replay_dir: str | Path) -> dict[str, Any] | None:
     crosswalk_path = replay_dir / _CROSSWALK_JSON
     review_queue_path = replay_dir / _REVIEW_QUEUE_JSON
     links_raw_path = replay_dir / _LINKS_RAW_JSONL
+    grounding_notes_path = replay_dir / _GROUNDING_NOTES_JSONL
     for required_path in (crosswalk_path, review_queue_path, links_raw_path):
         if not required_path.exists():
             raise ValueError(f"Replay bundle is missing {required_path.name}")
@@ -207,4 +214,5 @@ def load_replay_bundle(replay_dir: str | Path) -> dict[str, Any] | None:
         "crosswalk": crosswalk,
         "review_queue": review_queue,
         "links_raw_path": links_raw_path,
+        "grounding_notes_path": grounding_notes_path if grounding_notes_path.exists() else None,
     }

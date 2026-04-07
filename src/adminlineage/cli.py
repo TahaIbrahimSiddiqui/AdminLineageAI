@@ -70,6 +70,7 @@ def _run_from_config(config_path: str) -> int:
         llm_client=llm_client,
         temperature=cfg.llm.temperature,
         enable_google_search=cfg.llm.enable_google_search,
+        request_timeout_seconds=cfg.llm.request_timeout_seconds,
         cache_enabled=cfg.cache.enabled,
         cache_path=cfg.cache.path,
         replay_enabled=cfg.replay.enabled,

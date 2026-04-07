@@ -118,6 +118,7 @@ def _build_llm_client(
     retry_base_delay: float,
     retry_max_delay: float,
     retry_jitter: float,
+    request_timeout_seconds: int | None,
     env_search_dir: str | Path | None,
 ) -> BaseLLMClient:
     cache = SQLiteCache(cache_path) if cache_enabled else None
@@ -128,6 +129,7 @@ def _build_llm_client(
         base_delay_seconds=retry_base_delay,
         max_delay_seconds=retry_max_delay,
         jitter_seconds=retry_jitter,
+        request_timeout_seconds=request_timeout_seconds,
         env_search_dir=env_search_dir,
     )
 
@@ -402,11 +404,45 @@ def _final_relationship(
 def _artifact_paths(run_dir: Path) -> dict[str, Path]:
     return {
         "links_raw": run_dir / "links_raw.jsonl",
+        "grounding_notes": run_dir / "grounding_notes.jsonl",
         "crosswalk_csv": run_dir / "evolution_key.csv",
         "crosswalk_parquet": run_dir / "evolution_key.parquet",
         "review_queue_csv": run_dir / "review_queue.csv",
         "run_metadata_json": run_dir / "run_metadata.json",
     }
+
+
+def _collect_latest_records(
+    records: list[dict[str, Any]],
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    latest_success: dict[str, dict[str, Any]] = {}
+    latest_error: dict[str, dict[str, Any]] = {}
+    for record in records:
+        if "from_key" not in record:
+            continue
+        if record.get("status") == "ok":
+            latest_success[record["from_key"]] = record
+        elif record.get("status") == "error":
+            latest_error[record["from_key"]] = record
+    return latest_success, latest_error
+
+
+def _grounding_target_from_keys(
+    crosswalk: pd.DataFrame,
+    review_queue: pd.DataFrame,
+    *,
+    review_score_threshold: float,
+) -> list[str]:
+    if crosswalk.empty:
+        return []
+
+    target_keys = set(review_queue["from_key"].tolist()) if not review_queue.empty else set()
+    ambiguous_mask = (
+        crosswalk["link_type"].isin(["unknown", "no_match"])
+        | crosswalk["score"].lt(review_score_threshold)
+    )
+    target_keys.update(crosswalk.loc[ambiguous_mask, "from_key"].tolist())
+    return sorted(target_keys)
 
 
 def _build_run_metadata(
@@ -420,6 +456,9 @@ def _build_run_metadata(
     start_time: str,
     validation: dict[str, Any],
     error_from_rows: int,
+    grounding_attempted_rows: int,
+    grounded_rows: int,
+    grounding_failed_rows: int,
     replay_key: str | None,
     replay_hit: bool,
     replayed_from_run_id: str | None,
@@ -432,6 +471,9 @@ def _build_run_metadata(
         "to_rows_input": validation["to_rows_input"],
         "to_rows_effective": validation["to_rows_effective"],
         "error_from_rows": error_from_rows,
+        "grounding_attempted_rows": grounding_attempted_rows,
+        "grounded_rows": grounded_rows,
+        "grounding_failed_rows": grounding_failed_rows,
     }
     return {
         "run_id": run_id,
@@ -470,6 +512,8 @@ def _finalize_output_artifacts(
         "review_queue_csv": str(paths["review_queue_csv"]),
         "run_metadata_json": str(paths["run_metadata_json"]),
     }
+    if paths["grounding_notes"].exists():
+        artifacts["grounding_notes_jsonl"] = str(paths["grounding_notes"])
     if output_write_csv:
         artifacts["evolution_key_csv"] = str(paths["crosswalk_csv"])
 
@@ -618,15 +662,15 @@ def run_pipeline(
     relationship: RequestRelationshipType = "auto",
     string_exact_match_prune: ExactStringPruneMode = "none",
     reason: bool = False,
-    model: str = "gemini-2.5-pro",
+    model: str = "gemini-3.1-flash-lite-preview",
     gemini_api_key_env: str = "GEMINI_API_KEY",
     batch_size: int = 25,
     max_candidates: int = 15,
     output_dir: str | Path = "outputs",
     seed: int = 42,
     llm_client: BaseLLMClient | None = None,
-    temperature: float = 0.0,
-    enable_google_search: bool = False,
+    temperature: float = 0.75,
+    enable_google_search: bool = True,
     cache_enabled: bool = True,
     cache_path: str = "llm_cache.sqlite",
     replay_enabled: bool = False,
@@ -635,6 +679,7 @@ def run_pipeline(
     retry_base_delay: float = 1.0,
     retry_max_delay: float = 20.0,
     retry_jitter: float = 0.2,
+    request_timeout_seconds: int | None = 90,
     review_score_threshold: float = 0.6,
     output_write_csv: bool = True,
     output_write_parquet: bool = True,
@@ -741,6 +786,11 @@ def run_pipeline(
             crosswalk = replay_bundle["crosswalk"]
             review_queue = replay_bundle["review_queue"]
             write_jsonl(paths["links_raw"], read_jsonl(replay_bundle["links_raw_path"]))
+            grounding_notes_path = replay_bundle.get("grounding_notes_path")
+            if grounding_notes_path is not None:
+                write_jsonl(paths["grounding_notes"], read_jsonl(grounding_notes_path))
+            elif paths["grounding_notes"].exists():
+                paths["grounding_notes"].unlink()
             metadata = _build_run_metadata(
                 run_id=run_id,
                 request=request,
@@ -752,6 +802,19 @@ def run_pipeline(
                 validation=validation,
                 error_from_rows=int(
                     replay_bundle["manifest"].get("counts", {}).get("error_from_rows", 0)
+                ),
+                grounding_attempted_rows=int(
+                    replay_bundle["manifest"]
+                    .get("counts", {})
+                    .get("grounding_attempted_rows", 0)
+                ),
+                grounded_rows=int(
+                    replay_bundle["manifest"].get("counts", {}).get("grounded_rows", 0)
+                ),
+                grounding_failed_rows=int(
+                    replay_bundle["manifest"]
+                    .get("counts", {})
+                    .get("grounding_failed_rows", 0)
                 ),
                 replay_key=replay_key,
                 replay_hit=True,
@@ -790,8 +853,25 @@ def run_pipeline(
             retry_base_delay=retry_base_delay,
             retry_max_delay=retry_max_delay,
             retry_jitter=retry_jitter,
+            request_timeout_seconds=request_timeout_seconds,
             env_search_dir=env_search_dir,
         )
+    if paths["grounding_notes"].exists():
+        paths["grounding_notes"].unlink()
+    grounding_enabled = enable_google_search
+    if grounding_enabled:
+        logger.info(
+            "run_id=%s stage=grounding mode=single_pass_structured_json enabled=true",
+            run_id,
+        )
+    effective_batch_size = 1
+    if batch_size != effective_batch_size:
+        warning = (
+            "Sequential adjudication is enabled to reduce Gemini request failures. "
+            f"Using effective batch_size={effective_batch_size} instead."
+        )
+        warnings.append(warning)
+        logger.warning("run_id=%s stage=adjudication %s", run_id, warning)
     df_from_work, df_to_work = _prepare_workframes(
         df_from_effective,
         df_to_effective,
@@ -872,38 +952,107 @@ def run_pipeline(
 
     response_model = get_batch_response_model(include_reason=reason)
 
-    def _run_adjudication_batch(batch_keys: list[str], *, batch_label: str) -> None:
-        batch_items: list[dict[str, Any]] = []
-        for from_key in batch_keys:
-            from_row = from_lookup.loc[from_key]
-            exact_match_context = {col: from_row[col] for col in exact_match}
-            extras = {col: from_row[col] for col in extra_context_cols}
+    def _candidate_payloads_for_key(
+        from_key: str,
+        *,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        candidates: list[dict[str, Any]] = []
+        raw_candidates = candidate_map.get(from_key, [])
+        if limit is not None:
+            raw_candidates = raw_candidates[:limit]
 
-            candidates = []
-            for candidate in candidate_map.get(from_key, []):
-                to_row = to_lookup.loc[candidate["to_key"]]
-                candidate_payload = {
-                    "to_key": candidate["to_key"],
-                    "to_name": candidate["to_name"],
-                    "to_canonical_name": candidate["to_canonical_name"],
-                    "score": candidate["score"],
-                    "exact_match_context": {col: to_row[col] for col in exact_match},
-                }
-                if extra_context_cols:
-                    candidate_payload["extra_context"] = {
-                        col: to_row[col] for col in extra_context_cols
-                    }
-                candidates.append(candidate_payload)
-
-            batch_item = {
-                "from_key": from_key,
-                "from_name": from_row["_from_name_raw"],
-                "from_canonical_name": from_row["_from_canonical_name"],
-                "exact_match_context": exact_match_context,
-                "extra_context": extras,
-                "candidates": candidates,
+        for candidate in raw_candidates:
+            to_row = to_lookup.loc[candidate["to_key"]]
+            candidate_payload = {
+                "to_key": candidate["to_key"],
+                "to_name": candidate["to_name"],
+                "to_canonical_name": candidate["to_canonical_name"],
+                "score": candidate["score"],
+                "exact_match_context": {col: to_row[col] for col in exact_match},
             }
-            batch_items.append(batch_item)
+            if extra_context_cols:
+                candidate_payload["extra_context"] = {
+                    col: to_row[col] for col in extra_context_cols
+                }
+            candidates.append(candidate_payload)
+        return candidates
+
+    def _build_batch_item(
+        from_key: str,
+    ) -> dict[str, Any]:
+        from_row = from_lookup.loc[from_key]
+        return {
+            "from_key": from_key,
+            "from_name": from_row["_from_name_raw"],
+            "from_canonical_name": from_row["_from_canonical_name"],
+            "exact_match_context": {col: from_row[col] for col in exact_match},
+            "extra_context": {col: from_row[col] for col in extra_context_cols},
+            "candidates": _candidate_payloads_for_key(from_key),
+        }
+
+    def _record_grounding_note(
+        *,
+        from_key: str,
+        candidate_keys: list[str],
+        status: str,
+        notes: str = "",
+        error: str = "",
+    ) -> None:
+        if not grounding_enabled:
+            return
+        append_jsonl(
+            paths["grounding_notes"],
+            {
+                "run_id": run_id,
+                "timestamp": now_iso(),
+                "from_key": from_key,
+                "candidate_keys": candidate_keys,
+                "status": status,
+                "notes": notes[:4000],
+                "error": error,
+            },
+        )
+
+    def _run_adjudication_batch(
+        batch_keys: list[str],
+        *,
+        batch_label: str,
+        match_stage: str = "ai",
+    ) -> None:
+        batch_items = [_build_batch_item(from_key) for from_key in batch_keys]
+        if len(batch_items) == 1 and not batch_items[0]["candidates"]:
+            from_key = batch_items[0]["from_key"]
+            links = [
+                {
+                    "to_key": None,
+                    "link_type": "no_match",
+                    "relationship": "unknown",
+                    "score": 0.0,
+                    "evidence": "No shortlist candidates available in the constrained group.",
+                }
+            ]
+            if reason:
+                links[0]["reason"] = ""
+            append_jsonl(
+                links_raw_path,
+                {
+                    "run_id": run_id,
+                    "timestamp": now_iso(),
+                    "batch_index": batch_label,
+                    "match_stage": match_stage,
+                    "status": "ok",
+                    "from_key": from_key,
+                    "links": links,
+                },
+            )
+            _record_grounding_note(
+                from_key=from_key,
+                candidate_keys=[],
+                status="skipped",
+                error="No shortlist candidates available for structured adjudication.",
+            )
+            return
 
         prompt = build_batch_prompt(
             country=country,
@@ -913,62 +1062,16 @@ def run_pipeline(
             relationship=relationship,
             include_reason=reason,
             batch_items=batch_items,
-            allow_external_grounding=enable_google_search,
+            allow_external_grounding=grounding_enabled,
         )
 
         logger.info(
-            "run_id=%s stage=adjudication batch=%s size=%d",
+            "run_id=%s stage=adjudication match_stage=%s batch=%s size=%d",
             run_id,
+            match_stage,
             batch_label,
             len(batch_items),
         )
-
-        def _handle_retryable_batch_failure(exc: Exception) -> None:
-            if len(batch_keys) > 1:
-                smaller_batch_size = max(1, len(batch_keys) // 2)
-                warning = (
-                    f"Batch {batch_label} failed: {exc}. "
-                    f"Retrying in smaller chunks of up to {smaller_batch_size}."
-                )
-                warnings.append(warning)
-                logger.warning(
-                    "run_id=%s stage=adjudication batch=%s retrying_smaller_chunks=%d failed=%s",
-                    run_id,
-                    batch_label,
-                    smaller_batch_size,
-                    exc,
-                )
-                # A flaky batch often clears up once we stop
-                # asking the provider to do so much at once.
-                for child_index, child_keys in enumerate(
-                    chunked(batch_keys, smaller_batch_size),
-                    start=1,
-                ):
-                    _run_adjudication_batch(
-                        child_keys,
-                        batch_label=f"{batch_label}.{child_index}",
-                    )
-                return
-
-            logger.exception(
-                "run_id=%s stage=adjudication batch=%s failed=%s",
-                run_id,
-                batch_label,
-                exc,
-            )
-            warnings.append(f"Batch {batch_label} failed: {exc}")
-            for from_key in batch_keys:
-                append_jsonl(
-                    links_raw_path,
-                    {
-                        "run_id": run_id,
-                        "timestamp": now_iso(),
-                        "batch_index": batch_label,
-                        "status": "error",
-                        "from_key": from_key,
-                        "error": str(exc),
-                    },
-                )
 
         try:
             raw_response = llm_client.generate_json(
@@ -977,12 +1080,13 @@ def run_pipeline(
                 model=model,
                 temperature=temperature,
                 seed=seed,
-                enable_google_search=enable_google_search,
+                enable_google_search=grounding_enabled,
             )
             parsed = response_model.model_validate(raw_response)
             by_from = {decision.from_key: decision for decision in parsed.decisions}
 
-            for from_key in batch_keys:
+            for item in batch_items:
+                from_key = item["from_key"]
                 decision = by_from.get(from_key)
                 if decision is None:
                     links = [
@@ -1017,164 +1121,273 @@ def run_pipeline(
                         "run_id": run_id,
                         "timestamp": now_iso(),
                         "batch_index": batch_label,
-                        "match_stage": "ai",
+                        "match_stage": match_stage,
                         "status": "ok",
                         "from_key": from_key,
                         "links": links,
                     },
                 )
+                _record_grounding_note(
+                    from_key=from_key,
+                    candidate_keys=[candidate["to_key"] for candidate in item["candidates"]],
+                    status="ok",
+                    notes="Structured grounded JSON adjudication completed."
+                    if grounding_enabled
+                    else "",
+                )
         except QuotaExceededLLMError as exc:
             logger.exception(
-                "run_id=%s stage=adjudication batch=%s spending_cap_reached=%s",
+                (
+                    "run_id=%s stage=adjudication match_stage=%s "
+                    "batch=%s spending_cap_reached=%s"
+                ),
                 run_id,
+                match_stage,
                 batch_label,
                 exc,
             )
+            for item in batch_items:
+                _record_grounding_note(
+                    from_key=item["from_key"],
+                    candidate_keys=[candidate["to_key"] for candidate in item["candidates"]],
+                    status="error",
+                    error=str(exc),
+                )
             raise
         except LLMServiceError as exc:
             if isinstance(exc, TransientLLMError):
-                _handle_retryable_batch_failure(exc)
-            else:
-                logger.exception(
-                    "run_id=%s stage=adjudication batch=%s provider_error=%s",
+                logger.warning(
+                    "run_id=%s stage=adjudication match_stage=%s batch=%s transient_error=%s",
                     run_id,
+                    match_stage,
                     batch_label,
                     exc,
                 )
+                warnings.append(f"Batch {batch_label} failed: {exc}")
+                for item in batch_items:
+                    append_jsonl(
+                        links_raw_path,
+                        {
+                            "run_id": run_id,
+                            "timestamp": now_iso(),
+                            "batch_index": batch_label,
+                            "match_stage": match_stage,
+                            "status": "error",
+                            "from_key": item["from_key"],
+                            "error": str(exc),
+                        },
+                    )
+                    _record_grounding_note(
+                        from_key=item["from_key"],
+                        candidate_keys=[candidate["to_key"] for candidate in item["candidates"]],
+                        status="error",
+                        error=str(exc),
+                    )
+            else:
+                logger.exception(
+                    "run_id=%s stage=adjudication match_stage=%s batch=%s provider_error=%s",
+                    run_id,
+                    match_stage,
+                    batch_label,
+                    exc,
+                )
+                for item in batch_items:
+                    _record_grounding_note(
+                        from_key=item["from_key"],
+                        candidate_keys=[candidate["to_key"] for candidate in item["candidates"]],
+                        status="error",
+                        error=str(exc),
+                    )
                 raise
         except Exception as exc:
-            _handle_retryable_batch_failure(exc)
+            logger.warning(
+                "run_id=%s stage=adjudication match_stage=%s batch=%s failed=%s",
+                run_id,
+                match_stage,
+                batch_label,
+                exc,
+            )
+            warnings.append(f"Batch {batch_label} failed: {exc}")
+            for item in batch_items:
+                append_jsonl(
+                    links_raw_path,
+                    {
+                        "run_id": run_id,
+                        "timestamp": now_iso(),
+                        "batch_index": batch_label,
+                        "match_stage": match_stage,
+                        "status": "error",
+                        "from_key": item["from_key"],
+                        "error": str(exc),
+                    },
+                )
+                _record_grounding_note(
+                    from_key=item["from_key"],
+                    candidate_keys=[candidate["to_key"] for candidate in item["candidates"]],
+                    status="error",
+                    error=str(exc),
+                )
+
+    def _materialize_rows(
+        latest_success: dict[str, dict[str, Any]],
+        latest_error: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for from_key in df_from_work["_from_key"].tolist():
+            from_row = from_lookup.loc[from_key]
+            exact_match_payload = {col: from_row[col] for col in exact_match}
+
+            record = latest_success.get(from_key)
+            error_record = latest_error.get(from_key)
+            links = record.get("links", []) if record else []
+            match_stage = record.get("match_stage") if record else None
+            if not links:
+                error_text = (
+                    str(error_record.get("error", "")).strip()
+                    if error_record is not None
+                    else "No completed adjudication record."
+                )
+                links = [
+                    {
+                        "to_key": None,
+                        "link_type": "unknown",
+                        "relationship": "unknown",
+                        "score": 0.0,
+                        "evidence": (
+                            f"Adjudication failed after retries: {error_text}"
+                            if error_record is not None
+                            else error_text
+                        ),
+                        "reason": "",
+                    }
+                ]
+
+            allowed_to_keys = {item["to_key"] for item in candidate_map.get(from_key, [])}
+
+            for link in links:
+                raw_to_key = link.get("to_key")
+                candidate_membership = (
+                    True
+                    if match_stage == "exact"
+                    else raw_to_key is None or raw_to_key in allowed_to_keys
+                )
+                to_key = raw_to_key if candidate_membership else None
+                to_row = to_lookup.loc[to_key] if to_key in to_lookup.index else None
+
+                link_type = str(link.get("link_type", "unknown"))
+                score = float(link.get("score", 0.0))
+                evidence = str(link.get("evidence", "")).strip()
+                reason_text = str(link.get("reason", "")).strip() if reason else ""
+
+                if not candidate_membership:
+                    link_type = "unknown"
+                    score = 0.0
+                    evidence = "Model selected a target outside the provided candidates."
+                    if reason and not reason_text:
+                        reason_text = (
+                            "The chosen target was not present in the candidate list."
+                        )
+
+                if to_key is None and link_type in _MATCHED_LINK_TYPES:
+                    link_type = "unknown"
+
+                exact_match_passed = True
+                if to_row is not None and exact_match:
+                    exact_match_passed = all(
+                        from_row[_normalized_scope_col("from", col)]
+                        == to_row[_normalized_scope_col("to", col)]
+                        for col in exact_match
+                    )
+
+                row = {
+                    "from_name": from_row["_from_name_raw"],
+                    "to_name": to_row["_to_name_raw"] if to_row is not None else None,
+                    "from_canonical_name": from_row["_from_canonical_name"],
+                    "to_canonical_name": (
+                        to_row["_to_canonical_name"] if to_row is not None else None
+                    ),
+                    "from_id": from_row["_from_id"],
+                    "to_id": to_row["_to_id"] if to_row is not None else None,
+                    "score": score,
+                    "link_type": link_type,
+                    "relationship": _final_relationship(
+                        link.get("relationship"),
+                        requested_relationship=relationship,
+                        link_type=link_type,
+                        to_key=to_key,
+                    ),
+                    "evidence": evidence[:400],
+                    "reason": reason_text[:800] if reason else "",
+                    "country": country,
+                    "year_from": year_from,
+                    "year_to": year_to,
+                    "run_id": run_id,
+                    "from_key": from_key,
+                    "to_key": to_key,
+                    "constraints_passed": {
+                        "candidate_membership": candidate_membership,
+                        "exact_match": exact_match_passed,
+                    },
+                }
+                row.update(exact_match_payload)
+                rows.append(row)
+        return rows
+
+    def _build_crosswalk_and_review_queue(
+        latest_success: dict[str, dict[str, Any]],
+        latest_error: dict[str, dict[str, Any]],
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        crosswalk = pd.DataFrame(_materialize_rows(latest_success, latest_error))
+        for col in CROSSWALK_BASE_COLUMNS:
+            if col not in crosswalk.columns:
+                crosswalk[col] = "" if col in {"evidence", "reason"} else None
+
+        crosswalk = apply_global_flags(crosswalk, low_score_threshold=review_score_threshold)
+        exact_match_order = exact_match.copy()
+        preferred_order = CROSSWALK_BASE_COLUMNS + exact_match_order + [
+            "review_flags",
+            "review_reason",
+        ]
+        ordered_cols = [col for col in preferred_order if col in crosswalk.columns] + [
+            col for col in crosswalk.columns if col not in preferred_order
+        ]
+        crosswalk = crosswalk[ordered_cols]
+        review_queue = build_review_queue(crosswalk)
+        return crosswalk, review_queue
 
     batch_index = 0
-    for batch_keys in chunked(pending_from_keys, batch_size):
+    for batch_keys in chunked(pending_from_keys, effective_batch_size):
         batch_index += 1
         _run_adjudication_batch(batch_keys, batch_label=str(batch_index))
 
     final_records = read_jsonl(links_raw_path)
-    latest_success: dict[str, dict[str, Any]] = {}
-    latest_error: dict[str, dict[str, Any]] = {}
-    for record in final_records:
-        if record.get("status") == "ok":
-            latest_success[record["from_key"]] = record
-        elif record.get("status") == "error" and "from_key" in record:
-            latest_error[record["from_key"]] = record
-
+    latest_success, latest_error = _collect_latest_records(final_records)
+    grounding_attempted_rows = 0
+    grounded_rows = 0
+    grounding_failed_rows = 0
+    if grounding_enabled and paths["grounding_notes"].exists():
+        grounding_records = read_jsonl(paths["grounding_notes"])
+        grounding_attempted_rows = sum(
+            1 for record in grounding_records if record.get("status") in {"ok", "error"}
+        )
+        grounded_rows = sum(1 for record in grounding_records if record.get("status") == "ok")
+        grounding_failed_rows = sum(
+            1 for record in grounding_records if record.get("status") == "error"
+        )
     error_from_keys = sorted(set(latest_error) - set(latest_success))
     if error_from_keys:
         warnings.append(
             f"Adjudication still failed for {len(error_from_keys)} source rows after retries. "
             "Those rows were kept with error evidence so you can review or rerun them."
         )
+    if grounding_failed_rows:
+        warnings.append(
+            "Structured grounded adjudication did not complete cleanly for "
+            f"{grounding_failed_rows} source rows; unresolved rows were kept with error "
+            "evidence for review."
+        )
 
-    rows: list[dict[str, Any]] = []
-    for from_key in df_from_work["_from_key"].tolist():
-        from_row = from_lookup.loc[from_key]
-        exact_match_payload = {col: from_row[col] for col in exact_match}
-
-        record = latest_success.get(from_key)
-        error_record = latest_error.get(from_key)
-        links = record.get("links", []) if record else []
-        match_stage = record.get("match_stage") if record else None
-        if not links:
-            error_text = (
-                str(error_record.get("error", "")).strip()
-                if error_record is not None
-                else "No completed adjudication record."
-            )
-            links = [
-                {
-                    "to_key": None,
-                    "link_type": "unknown",
-                    "relationship": "unknown",
-                    "score": 0.0,
-                    "evidence": (
-                        f"Adjudication failed after retries: {error_text}"
-                        if error_record is not None
-                        else error_text
-                    ),
-                    "reason": "",
-                }
-            ]
-
-        allowed_to_keys = {item["to_key"] for item in candidate_map.get(from_key, [])}
-
-        for link in links:
-            raw_to_key = link.get("to_key")
-            candidate_membership = (
-                True
-                if match_stage == "exact"
-                else raw_to_key is None or raw_to_key in allowed_to_keys
-            )
-            to_key = raw_to_key if candidate_membership else None
-            to_row = to_lookup.loc[to_key] if to_key in to_lookup.index else None
-
-            link_type = str(link.get("link_type", "unknown"))
-            score = float(link.get("score", 0.0))
-            evidence = str(link.get("evidence", "")).strip()
-            reason_text = str(link.get("reason", "")).strip() if reason else ""
-
-            if not candidate_membership:
-                link_type = "unknown"
-                score = 0.0
-                evidence = "Model selected a target outside the provided candidates."
-                if reason and not reason_text:
-                    reason_text = "The chosen target was not present in the candidate list."
-
-            if to_key is None and link_type in _MATCHED_LINK_TYPES:
-                link_type = "unknown"
-
-            exact_match_passed = True
-            if to_row is not None and exact_match:
-                exact_match_passed = all(
-                    from_row[_normalized_scope_col("from", col)]
-                    == to_row[_normalized_scope_col("to", col)]
-                    for col in exact_match
-                )
-
-            row = {
-                "from_name": from_row["_from_name_raw"],
-                "to_name": to_row["_to_name_raw"] if to_row is not None else None,
-                "from_canonical_name": from_row["_from_canonical_name"],
-                "to_canonical_name": to_row["_to_canonical_name"] if to_row is not None else None,
-                "from_id": from_row["_from_id"],
-                "to_id": to_row["_to_id"] if to_row is not None else None,
-                "score": score,
-                "link_type": link_type,
-                "relationship": _final_relationship(
-                    link.get("relationship"),
-                    requested_relationship=relationship,
-                    link_type=link_type,
-                    to_key=to_key,
-                ),
-                "evidence": evidence[:400],
-                "reason": reason_text[:800] if reason else "",
-                "country": country,
-                "year_from": year_from,
-                "year_to": year_to,
-                "run_id": run_id,
-                "from_key": from_key,
-                "to_key": to_key,
-                "constraints_passed": {
-                    "candidate_membership": candidate_membership,
-                    "exact_match": exact_match_passed,
-                },
-            }
-            row.update(exact_match_payload)
-            rows.append(row)
-
-    crosswalk = pd.DataFrame(rows)
-    for col in CROSSWALK_BASE_COLUMNS:
-        if col not in crosswalk.columns:
-            crosswalk[col] = "" if col in {"evidence", "reason"} else None
-
-    crosswalk = apply_global_flags(crosswalk, low_score_threshold=review_score_threshold)
-    exact_match_order = exact_match.copy()
-    preferred_order = CROSSWALK_BASE_COLUMNS + exact_match_order + ["review_flags", "review_reason"]
-    ordered_cols = [col for col in preferred_order if col in crosswalk.columns] + [
-        col for col in crosswalk.columns if col not in preferred_order
-    ]
-    crosswalk = crosswalk[ordered_cols]
-    review_queue = build_review_queue(crosswalk)
+    crosswalk, review_queue = _build_crosswalk_and_review_queue(latest_success, latest_error)
     if replay_dir is not None and error_from_keys:
         warnings.append(
             "Replay bundle was not updated because the run still has unresolved adjudication "
@@ -1191,6 +1404,9 @@ def run_pipeline(
         start_time=start_time,
         validation=validation,
         error_from_rows=len(error_from_keys),
+        grounding_attempted_rows=grounding_attempted_rows,
+        grounded_rows=grounded_rows,
+        grounding_failed_rows=grounding_failed_rows,
         replay_key=replay_key,
         replay_hit=False,
         replayed_from_run_id=None,
@@ -1221,6 +1437,7 @@ def run_pipeline(
                 crosswalk=crosswalk,
                 review_queue=review_queue,
                 links_raw_path=links_raw_path,
+                grounding_notes_path=paths["grounding_notes"],
             )
         except Exception as exc:
             warning = f"Replay bundle publish failed ({exc}); current run outputs are still valid."

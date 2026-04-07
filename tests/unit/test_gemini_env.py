@@ -91,6 +91,7 @@ def test_gemini_client_builds_search_tool_config(tmp_path, monkeypatch):
             self.temperature = kwargs["temperature"]
             self.response_mime_type = kwargs.get("response_mime_type")
             self.response_schema = kwargs.get("response_schema")
+            self.response_json_schema = kwargs.get("response_json_schema")
             self.seed = kwargs["seed"]
             self.tools = kwargs.get("tools", [])
 
@@ -128,8 +129,9 @@ def test_gemini_client_builds_search_tool_config(tmp_path, monkeypatch):
     config = captured["config"]
     assert config.temperature == 0.75
     assert config.seed == 99
-    assert config.response_mime_type is None
+    assert config.response_mime_type == "application/json"
     assert config.response_schema is None
+    assert isinstance(config.response_json_schema, dict)
     assert len(config.tools) == 1
     assert config.tools[0].google_search is not None
 
@@ -142,8 +144,9 @@ def test_gemini_client_builds_search_tool_config(tmp_path, monkeypatch):
         schema=DummyBatchResponse,
     )
     config = captured["config"]
-    assert config.response_mime_type is None
+    assert config.response_mime_type == "application/json"
     assert config.response_schema is None
+    assert isinstance(config.response_json_schema, dict)
     assert len(config.tools) == 1
     assert config.tools[0].google_search is not None
 
@@ -157,7 +160,8 @@ def test_gemini_client_builds_search_tool_config(tmp_path, monkeypatch):
     )
     config = captured["config"]
     assert config.response_mime_type == "application/json"
-    assert config.response_schema is DummyBatchResponse
+    assert config.response_schema is None
+    assert isinstance(config.response_json_schema, dict)
     assert config.tools == []
 
 
@@ -249,6 +253,78 @@ def test_gemini_client_retries_empty_response(tmp_path, monkeypatch):
 
     assert result == '{"decisions":[]}'
     assert calls["count"] == 2
+
+
+def test_gemini_client_falls_back_when_response_schema_is_rejected(monkeypatch):
+    client = GeminiClient()
+    calls: list[object] = []
+
+    def fake_call_model(
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+        seed: int,
+        enable_google_search: bool,
+        schema=None,
+    ) -> str:
+        _ = (prompt, model, temperature, seed, enable_google_search)
+        calls.append(schema)
+        if schema is not None:
+            raise gemini_module.LLMServiceError(
+                "400 INVALID_ARGUMENT generation_config.response_schema additional_properties"
+            )
+        return '{"decisions":[]}'
+
+    monkeypatch.setattr(client, "_call_model", fake_call_model)
+
+    result = client.generate_json(
+        prompt="Return JSON only",
+        schema=DummyBatchResponse,
+        model="gemini-2.5-flash",
+        temperature=0.0,
+        seed=42,
+    )
+
+    assert result == {"decisions": []}
+    assert calls == [DummyBatchResponse, None]
+
+
+def test_gemini_client_parses_fenced_json_without_repair(monkeypatch):
+    client = GeminiClient()
+    calls: list[str] = []
+
+    def fake_call_model(
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+        seed: int,
+        enable_google_search: bool,
+        schema=None,
+    ) -> str:
+        _ = (model, temperature, seed, enable_google_search, schema)
+        calls.append(prompt)
+        return '```json\n{"decisions":[]}\n```'
+
+    monkeypatch.setattr(client, "_call_model", fake_call_model)
+
+    result = client.generate_json(
+        prompt="Return JSON only",
+        schema=DummyBatchResponse,
+        model="gemini-2.5-flash",
+        temperature=0.0,
+        seed=42,
+        enable_google_search=True,
+    )
+
+    assert result == {"decisions": []}
+    assert calls == ["Return JSON only"]
+
+
+def test_gemini_client_converts_timeout_seconds_to_sdk_milliseconds():
+    assert GeminiClient._http_options(None) is None
+    assert GeminiClient._http_options(90) == {"timeout": 90000}
 
 
 def test_gemini_client_retries_transient_provider_errors(tmp_path, monkeypatch):
@@ -740,3 +816,146 @@ def test_gemini_client_raises_after_repeated_empty_response(tmp_path, monkeypatc
             seed=42,
             enable_google_search=False,
         )
+
+
+def test_gemini_client_repair_call_uses_zero_temperature(monkeypatch):
+    client = GeminiClient()
+    calls: list[dict[str, object]] = []
+
+    def fake_call_model(
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+        seed: int,
+        enable_google_search: bool,
+        schema=None,
+    ) -> str:
+        calls.append(
+            {
+                "prompt": prompt,
+                "model": model,
+                "temperature": temperature,
+                "seed": seed,
+                "enable_google_search": enable_google_search,
+                "schema": schema,
+            }
+        )
+        if len(calls) == 1:
+            return "not valid json"
+        return '{"decisions":[]}'
+
+    monkeypatch.setattr(client, "_call_model", fake_call_model)
+
+    result = client.generate_json(
+        prompt="Return JSON only",
+        schema=DummyBatchResponse,
+        model="gemini-2.5-pro",
+        temperature=0.75,
+        seed=42,
+        enable_google_search=True,
+    )
+
+    assert result == {"decisions": []}
+    assert calls[0]["temperature"] == 0.75
+    assert calls[0]["enable_google_search"] is True
+    assert calls[1]["temperature"] == 0.0
+    assert calls[1]["enable_google_search"] is False
+
+
+def test_gemini_client_generate_text_preserves_semantic_temperature(monkeypatch):
+    client = GeminiClient()
+    captured: dict[str, object] = {}
+
+    def fake_call_text_model(
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+        seed: int,
+        enable_google_search: bool,
+    ) -> str:
+        captured["prompt"] = prompt
+        captured["model"] = model
+        captured["temperature"] = temperature
+        captured["seed"] = seed
+        captured["enable_google_search"] = enable_google_search
+        return "grounded notes"
+
+    monkeypatch.setattr(client, "_call_text_model", fake_call_text_model)
+
+    result = client.generate_text(
+        prompt="Verify shortlist candidates",
+        model="gemini-2.5-pro",
+        temperature=0.75,
+        seed=7,
+        enable_google_search=True,
+    )
+
+    assert result == "grounded notes"
+    assert captured["temperature"] == 0.75
+    assert captured["enable_google_search"] is True
+
+
+def test_gemini_client_limits_grounded_text_retry_attempts(tmp_path, monkeypatch):
+    env_path = tmp_path / ".env"
+    env_path.write_text("TEST_GEMINI_KEY=from_dotenv\n", encoding="utf-8")
+    monkeypatch.delenv("TEST_GEMINI_KEY", raising=False)
+
+    calls = {"count": 0}
+
+    class FakeGoogleSearch:
+        pass
+
+    class FakeTool:
+        def __init__(self, *, google_search=None):
+            self.google_search = google_search
+
+    class FakeGenerateContentConfig:
+        def __init__(self, **kwargs):
+            self.temperature = kwargs["temperature"]
+            self.seed = kwargs["seed"]
+            self.tools = kwargs.get("tools", [])
+
+    class FakeModels:
+        @staticmethod
+        def generate_content(**kwargs):
+            _ = kwargs
+            calls["count"] += 1
+            raise RuntimeError("503 UNAVAILABLE")
+
+    class FakeGenAIClient:
+        def __init__(self, api_key: str):
+            _ = api_key
+            self.models = FakeModels()
+
+    fake_types = types.SimpleNamespace(
+        Tool=FakeTool,
+        GoogleSearch=FakeGoogleSearch,
+        GenerateContentConfig=FakeGenerateContentConfig,
+    )
+    fake_google = types.SimpleNamespace(
+        genai=types.SimpleNamespace(Client=FakeGenAIClient, types=fake_types)
+    )
+    monkeypatch.setitem(sys.modules, "google", fake_google)
+
+    client = GeminiClient(
+        api_key_env="TEST_GEMINI_KEY",
+        env_search_dir=tmp_path,
+        max_attempts=6,
+        base_delay_seconds=0.0,
+        max_delay_seconds=0.0,
+        jitter_seconds=0.0,
+        min_request_interval_seconds=0.0,
+    )
+
+    with pytest.raises(RuntimeError, match="503 UNAVAILABLE"):
+        client.generate_text(
+            prompt="Verify shortlist candidates",
+            model="gemini-2.5-pro",
+            temperature=0.75,
+            seed=42,
+            enable_google_search=True,
+        )
+
+    assert calls["count"] == 2

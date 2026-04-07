@@ -22,6 +22,21 @@ class BaseLLMClient(ABC):
     ) -> dict[str, Any]:
         """Generate JSON response validated against schema."""
 
+    def generate_text(
+        self,
+        prompt: str,
+        model: str,
+        temperature: float,
+        seed: int,
+        *,
+        enable_google_search: bool = False,
+    ) -> str:
+        """Generate plain text response for providers that support free-form output."""
+
+        raise LLMServiceError(
+            f"{self.__class__.__name__} does not support plain-text generation."
+        )
+
 
 class LLMServiceError(RuntimeError):
     """Raised for provider-side failures or invalid responses."""

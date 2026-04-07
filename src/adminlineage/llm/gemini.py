@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,8 @@ _VALID_RELATIONSHIP_TYPES = set(RELATIONSHIP_TYPES)
 _LINK_TYPE_ALIASES = {
     "exact_match": "rename",
 }
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.IGNORECASE | re.DOTALL)
+_MAX_GROUNDED_TEXT_ATTEMPTS = 2
 
 
 class GeminiClient(BaseLLMClient):
@@ -42,6 +45,7 @@ class GeminiClient(BaseLLMClient):
         max_delay_seconds: float = 20.0,
         jitter_seconds: float = 0.2,
         min_request_interval_seconds: float = 0.5,
+        request_timeout_seconds: int | None = 90,
         env_search_dir: str | Path | None = None,
     ) -> None:
         self.api_key_env = api_key_env
@@ -51,6 +55,11 @@ class GeminiClient(BaseLLMClient):
         self.max_delay_seconds = max_delay_seconds
         self.jitter_seconds = jitter_seconds
         self.min_request_interval_seconds = max(0.0, min_request_interval_seconds)
+        self.request_timeout_seconds = (
+            None
+            if request_timeout_seconds is None or int(request_timeout_seconds) <= 0
+            else int(request_timeout_seconds)
+        )
         self.env_search_dir = env_search_dir
         self._env_loaded = False
         self._last_request_started_at: float | None = None
@@ -74,6 +83,7 @@ class GeminiClient(BaseLLMClient):
         seed: int,
         enable_google_search: bool,
         schema: Any | None = None,
+        structured_output: bool = True,
     ) -> Any:
         tools = []
         if enable_google_search:
@@ -85,11 +95,55 @@ class GeminiClient(BaseLLMClient):
         }
         if tools:
             config_kwargs["tools"] = tools
-        else:
+        if structured_output:
             config_kwargs["response_mime_type"] = "application/json"
             if schema is not None:
-                config_kwargs["response_schema"] = schema
+                config_kwargs["response_json_schema"] = GeminiClient._response_json_schema(
+                    schema
+                )
         return genai_types.GenerateContentConfig(**config_kwargs)
+
+    @classmethod
+    def _response_json_schema(cls, schema: Any) -> Any:
+        if schema is None:
+            return None
+        if isinstance(schema, dict):
+            return cls._sanitize_json_schema(schema)
+        if isinstance(schema, type) and issubclass(schema, BaseModel):
+            return cls._sanitize_json_schema(schema.model_json_schema())
+        return schema
+
+    @classmethod
+    def _sanitize_json_schema(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return [cls._sanitize_json_schema(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in {"default", "examples", "description", "title"}:
+                continue
+            sanitized[key] = cls._sanitize_json_schema(item)
+
+        any_of = sanitized.get("anyOf")
+        if isinstance(any_of, list) and any_of:
+            simple_types: list[str] = []
+            remainder: list[Any] = []
+            for option in any_of:
+                if (
+                    isinstance(option, dict)
+                    and isinstance(option.get("type"), str)
+                    and set(option.keys()) <= {"type"}
+                ):
+                    simple_types.append(option["type"])
+                else:
+                    remainder.append(option)
+            if simple_types and not remainder:
+                sanitized.pop("anyOf", None)
+                sanitized["type"] = simple_types if len(simple_types) > 1 else simple_types[0]
+
+        return sanitized
 
     @staticmethod
     def _provider_error_text(exc: Exception) -> str:
@@ -111,6 +165,42 @@ class GeminiClient(BaseLLMClient):
 
         parts.append(str(exc))
         return " ".join(parts).lower()
+
+    @classmethod
+    def _is_unsupported_response_schema_error(cls, exc: Exception) -> bool:
+        text = cls._provider_error_text(exc)
+        schema_terms = (
+            "generation_config.response_schema",
+            "response_schema",
+            "response_json_schema",
+            "json schema",
+        )
+        failure_terms = (
+            "additional_properties",
+            "unknown name",
+            "unsupported",
+            "invalid",
+            "not supported",
+            "cannot be used",
+        )
+        return any(term in text for term in schema_terms) and any(
+            term in text for term in failure_terms
+        )
+
+    @staticmethod
+    def _extract_response_text(response: Any) -> str:
+        text = getattr(response, "text", None)
+        if text:
+            return str(text).strip()
+
+        candidates = getattr(response, "candidates", None) or []
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) or []
+            text_parts = [str(part.text).strip() for part in parts if getattr(part, "text", None)]
+            if text_parts:
+                return "\n".join(text_parts).strip()
+        return ""
 
     @classmethod
     def _classify_provider_error(cls, exc: Exception) -> LLMServiceError:
@@ -212,6 +302,53 @@ class GeminiClient(BaseLLMClient):
                 time.sleep(wait_seconds)
         self._last_request_started_at = time.monotonic()
 
+    @staticmethod
+    def _http_options(timeout_seconds: int | None) -> dict[str, Any] | None:
+        if timeout_seconds is None:
+            return None
+        return {"timeout": int(timeout_seconds * 1000)}
+
+    @classmethod
+    def _parse_json_payload(cls, raw_text: str) -> Any:
+        stripped = raw_text.strip()
+        candidates: list[str] = []
+
+        if stripped:
+            candidates.append(stripped)
+
+        fence_match = _JSON_FENCE_RE.search(stripped)
+        if fence_match:
+            candidates.append(fence_match.group(1).strip())
+
+        for opener, closer in (("{", "}"), ("[", "]")):
+            start = stripped.find(opener)
+            end = stripped.rfind(closer)
+            if start != -1 and end != -1 and end > start:
+                candidates.append(stripped[start : end + 1].strip())
+
+        decoder = json.JSONDecoder()
+        last_error: Exception | None = None
+        seen: set[str] = set()
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError as exc:
+                last_error = exc
+            try:
+                parsed, end = decoder.raw_decode(candidate)
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                continue
+            if candidate[end:].strip() == "":
+                return parsed
+
+        if last_error is not None:
+            raise last_error
+        raise json.JSONDecodeError("No JSON object found in Gemini response", raw_text, 0)
+
     def _call_model(
         self,
         prompt: str,
@@ -243,13 +380,24 @@ class GeminiClient(BaseLLMClient):
         if genai_types is None:
             raise LLMServiceError("google-genai types are unavailable in the installed SDK.")
 
-        client = genai.Client(api_key=api_key)
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        http_options = self._http_options(self.request_timeout_seconds)
+        if http_options is not None:
+            try:
+                client = genai.Client(http_options=http_options, **client_kwargs)
+            except TypeError as exc:
+                if "http_options" not in str(exc):
+                    raise
+                client = genai.Client(**client_kwargs)
+        else:
+            client = genai.Client(**client_kwargs)
         config = self._build_generate_config(
             genai_types=genai_types,
             temperature=temperature,
             seed=seed,
             enable_google_search=enable_google_search,
             schema=schema,
+            structured_output=True,
         )
 
         def _invoke() -> str:
@@ -262,7 +410,7 @@ class GeminiClient(BaseLLMClient):
                 )
             except Exception as exc:
                 raise self._classify_provider_error(exc) from exc
-            text = getattr(response, "text", None)
+            text = self._extract_response_text(response)
             if not text:
                 raise TransientLLMError("Gemini returned an empty response")
             return text
@@ -270,6 +418,84 @@ class GeminiClient(BaseLLMClient):
         return retry_call(
             _invoke,
             max_attempts=self.max_attempts,
+            base_delay_seconds=self.base_delay_seconds,
+            max_delay_seconds=self.max_delay_seconds,
+            jitter_seconds=self.jitter_seconds,
+            retry_exceptions=(TransientLLMError,),
+        )
+
+    def _call_text_model(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+        seed: int,
+        enable_google_search: bool,
+    ) -> str:
+        if not self._env_loaded:
+            load_env_file(self.env_search_dir)
+            self._env_loaded = True
+        api_key = os.getenv(self.api_key_env)
+        if not api_key:
+            raise LLMServiceError(
+                f"Missing Gemini API key in environment variable {self.api_key_env}"
+            )
+
+        try:
+            from google import genai
+        except Exception as exc:
+            raise LLMServiceError(
+                "google-genai is required for GeminiClient. Install dependency 'google-genai'."
+            ) from exc
+        genai_types = getattr(genai, "types", None)
+        if genai_types is None:
+            raise LLMServiceError("google-genai types are unavailable in the installed SDK.")
+
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        http_options = self._http_options(self.request_timeout_seconds)
+        if http_options is not None:
+            try:
+                client = genai.Client(http_options=http_options, **client_kwargs)
+            except TypeError as exc:
+                if "http_options" not in str(exc):
+                    raise
+                client = genai.Client(**client_kwargs)
+        else:
+            client = genai.Client(**client_kwargs)
+
+        config = self._build_generate_config(
+            genai_types=genai_types,
+            temperature=temperature,
+            seed=seed,
+            enable_google_search=enable_google_search,
+            structured_output=False,
+        )
+
+        def _invoke() -> str:
+            try:
+                self._respect_request_spacing()
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=config,
+                )
+            except Exception as exc:
+                raise self._classify_provider_error(exc) from exc
+            text = self._extract_response_text(response)
+            if not text:
+                raise TransientLLMError("Gemini returned an empty response")
+            return text
+
+        max_attempts = (
+            min(self.max_attempts, _MAX_GROUNDED_TEXT_ATTEMPTS)
+            if enable_google_search
+            else self.max_attempts
+        )
+
+        return retry_call(
+            _invoke,
+            max_attempts=max_attempts,
             base_delay_seconds=self.base_delay_seconds,
             max_delay_seconds=self.max_delay_seconds,
             jitter_seconds=self.jitter_seconds,
@@ -348,16 +574,35 @@ class GeminiClient(BaseLLMClient):
             if cached is not None:
                 return self._validate_schema(cached, schema)
 
-        raw_text = self._call_model(
-            prompt,
-            model=model,
-            temperature=temperature,
-            seed=seed,
-            enable_google_search=enable_google_search,
-            schema=schema,
-        )
         try:
-            parsed = json.loads(raw_text)
+            raw_text = self._call_model(
+                prompt,
+                model=model,
+                temperature=temperature,
+                seed=seed,
+                enable_google_search=enable_google_search,
+                schema=schema,
+            )
+            schema_for_call = schema
+        except LLMServiceError as exc:
+            if (
+                not enable_google_search
+                and schema is not None
+                and self._is_unsupported_response_schema_error(exc)
+            ):
+                raw_text = self._call_model(
+                    prompt,
+                    model=model,
+                    temperature=temperature,
+                    seed=seed,
+                    enable_google_search=enable_google_search,
+                    schema=None,
+                )
+                schema_for_call = None
+            else:
+                raise
+        try:
+            parsed = self._parse_json_payload(raw_text)
             validated = self._validate_schema(parsed, schema)
         except Exception as first_error:
             repair_prompt = build_repair_prompt(
@@ -371,10 +616,10 @@ class GeminiClient(BaseLLMClient):
                 temperature=0.0,
                 seed=seed,
                 enable_google_search=False,
-                schema=schema,
+                schema=schema_for_call,
             )
             try:
-                parsed = json.loads(repair_text)
+                parsed = self._parse_json_payload(repair_text)
                 validated = self._validate_schema(parsed, schema)
             except Exception as second_error:
                 raise LLMServiceError(
@@ -392,3 +637,20 @@ class GeminiClient(BaseLLMClient):
             )
 
         return validated
+
+    def generate_text(
+        self,
+        prompt: str,
+        model: str,
+        temperature: float,
+        seed: int,
+        *,
+        enable_google_search: bool = False,
+    ) -> str:
+        return self._call_text_model(
+            prompt,
+            model=model,
+            temperature=temperature,
+            seed=seed,
+            enable_google_search=enable_google_search,
+        )

@@ -90,3 +90,19 @@ class MockClient(BaseLLMClient):
         if isinstance(schema, type) and issubclass(schema, BaseModel):
             return schema.model_validate(response).model_dump()
         return response
+
+    def generate_text(
+        self,
+        prompt: str,
+        model: str,
+        temperature: float,
+        seed: int,
+        *,
+        enable_google_search: bool = False,
+    ) -> str:
+        _ = (model, temperature, seed, enable_google_search)
+        self.calls += 1
+        return (
+            "Grounding notes: shortlist verification remains inconclusive in mock mode. "
+            "Prefer the best in-list lexical candidate only when local evidence is already strong."
+        )

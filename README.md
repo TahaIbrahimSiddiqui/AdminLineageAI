@@ -4,6 +4,13 @@
 
 In plain terms, you give it one table from an older period, one table from a newer period, and the name columns you want to match. It scores candidate matches, asks Gemini to choose the most plausible links, and writes a crosswalk you can review.
 
+The supported workflow in this repo is one path only:
+
+- Gemini `gemini-3.1-flash-lite-preview`
+- Google Search grounding enabled
+- strict JSON output schema
+- sequential row-by-row adjudication for reliability
+
 The package is meant to be easy to pick up:
 
 - one install command
@@ -68,7 +75,7 @@ crosswalk_df, metadata = adminlineage.build_evolution_key(
     id_col_to="unit_id",
     relationship="auto",
     reason=False,
-    model="gemini-2.5-pro",
+    model="gemini-3.1-flash-lite-preview",
     gemini_api_key_env="GEMINI_API_KEY",
 )
 
@@ -113,11 +120,11 @@ data:
 
 llm:
   provider: gemini
-  model: gemini-2.5-pro
+  model: gemini-3.1-flash-lite-preview
   gemini_api_key_env: GEMINI_API_KEY
 
 pipeline:
-  batch_size: 25
+  batch_size: 1
   max_candidates: 15
 ```
 
@@ -147,7 +154,7 @@ Common optional arguments:
 | `reason` | `False` by default; when `True`, asks the model for a fuller explanation |
 | `model` | Gemini model name |
 | `gemini_api_key_env` | Environment variable name containing the API key |
-| `batch_size` | LLM adjudication batch size |
+| `batch_size` | Compatibility setting; live Gemini runs execute sequentially |
 | `max_candidates` | Candidate shortlist size |
 | `seed` | Deterministic seed for repeatable runs |
 
@@ -257,7 +264,7 @@ The pipeline is straightforward:
 1. Normalize names.
 2. Group rows by `exact_match` when provided.
 3. Build a lexical shortlist for each source row.
-4. Ask Gemini to choose links from that shortlist only.
+4. Ask Gemini 3.1 Flash-Lite to choose links from that shortlist only, one source row at a time, with Google Search grounding limited to shortlist verification.
 5. Write outputs and flag questionable rows for review.
 
 This is a model-assisted workflow, not an automatic truth machine. You still need to read `review_queue.csv` and spot-check important cases.

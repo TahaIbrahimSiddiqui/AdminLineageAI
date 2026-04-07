@@ -26,7 +26,7 @@ def _build_identity(
         "seed": 42,
         "temperature": 0.75,
         "enable_google_search": True,
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
     }
     request_payload.update(request_overrides)
     return build_replay_identity(

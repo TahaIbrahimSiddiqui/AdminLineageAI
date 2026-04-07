@@ -57,11 +57,12 @@ class LLMConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: Literal["gemini", "mock"] = "gemini"
-    model: str = "gemini-2.5-pro"
+    model: str = "gemini-3.1-flash-lite-preview"
     gemini_api_key_env: str = "GEMINI_API_KEY"
-    temperature: float = 0.0
+    temperature: float = 0.75
     seed: int = 42
-    enable_google_search: bool = False
+    enable_google_search: bool = True
+    request_timeout_seconds: int | None = 90
 
 
 class PipelineConfig(BaseModel):

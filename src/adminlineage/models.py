@@ -40,12 +40,12 @@ class MappingRequest(BaseModel):
     relationship: RequestRelationshipType = "auto"
     string_exact_match_prune: ExactStringPruneMode = "none"
     reason: bool = False
-    model: str = "gemini-2.5-pro"
+    model: str = "gemini-3.1-flash-lite-preview"
     batch_size: int = 25
     max_candidates: int = 15
     seed: int = 42
-    temperature: float = 0.0
-    enable_google_search: bool = False
+    temperature: float = 0.75
+    enable_google_search: bool = True
     schema_version: str = PROMPT_SCHEMA_VERSION
 
     @field_validator("country")

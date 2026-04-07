@@ -18,13 +18,14 @@ data:
 
 llm:
   provider: mock
-  model: gemini-2.5-pro
+  model: gemini-3.1-flash-lite-preview
   gemini_api_key_env: GEMINI_API_KEY
-  temperature: 0.0
+  temperature: 0.75
   seed: 42
+  enable_google_search: true
 
 pipeline:
-  batch_size: 25
+  batch_size: 1
   max_candidates: 15
   review_score_threshold: 0.6
 
