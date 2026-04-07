@@ -42,11 +42,16 @@ def test_pipeline_end_to_end_with_mock(sample_df_from, sample_df_to, tmp_path: P
         "score",
         "link_type",
         "relationship",
+        "merge",
         "reason",
         "run_id",
     }.issubset(crosswalk.columns)
     assert "evidence" not in crosswalk.columns
     assert crosswalk["reason"].eq("").all()
+    assert set(crosswalk["merge"]) == {"both", "only_in_to"}
+    only_in_to_row = crosswalk.loc[crosswalk["merge"] == "only_in_to"].iloc[0]
+    assert only_in_to_row["from_key"] is None
+    assert only_in_to_row["to_name"] == "Unrelated"
     assert metadata["run_id"]
     assert metadata["request"]["temperature"] == 0.75
     assert metadata["request"]["enable_google_search"] is True
@@ -59,6 +64,58 @@ def test_pipeline_end_to_end_with_mock(sample_df_from, sample_df_to, tmp_path: P
     saved = pd.read_csv(csv_path)
     assert list(saved.columns) == list(crosswalk.columns)
     assert metadata["artifacts"]["run_metadata_json"] == str(run_dir / "run_metadata.json")
+
+
+def test_pipeline_merge_indicator_marks_from_only_and_to_only_rows(tmp_path: Path):
+    df_from = pd.DataFrame(
+        {
+            "state": ["S1", "S1"],
+            "district": ["D1", "D9"],
+            "subdistrict": ["North Block", "Missing Source"],
+            "unit_id": ["f1", "f2"],
+        }
+    )
+    df_to = pd.DataFrame(
+        {
+            "state": ["S1", "S1"],
+            "district": ["D1", "D3"],
+            "subdistrict": ["North Block", "Unrelated"],
+            "unit_id": ["t1", "t2"],
+        }
+    )
+
+    crosswalk, _ = run_pipeline(
+        df_from,
+        df_to,
+        country="India",
+        year_from=1951,
+        year_to=2001,
+        map_col_from="subdistrict",
+        map_col_to="subdistrict",
+        exact_match=["state", "district"],
+        id_col_from="unit_id",
+        id_col_to="unit_id",
+        relationship="auto",
+        reason=False,
+        model="gemini-3.1-flash-lite-preview",
+        batch_size=2,
+        max_candidates=3,
+        output_dir=tmp_path / "outputs_merge_indicator",
+        llm_client=MockClient(default_score=0.91),
+        output_write_parquet=False,
+    )
+
+    merge_counts = crosswalk["merge"].value_counts().to_dict()
+    assert merge_counts == {"both": 1, "only_in_from": 1, "only_in_to": 1}
+
+    source_only_row = crosswalk.loc[crosswalk["merge"] == "only_in_from"].iloc[0]
+    assert source_only_row["from_name"] == "Missing Source"
+    assert source_only_row["to_key"] is None
+
+    target_only_row = crosswalk.loc[crosswalk["merge"] == "only_in_to"].iloc[0]
+    assert target_only_row["from_key"] is None
+    assert target_only_row["to_name"] == "Unrelated"
+    assert target_only_row["to_id"] == "t2"
 
 
 def test_pipeline_reason_mode_with_mock(sample_df_from, sample_df_to, tmp_path: Path):
@@ -86,7 +143,10 @@ def test_pipeline_reason_mode_with_mock(sample_df_from, sample_df_to, tmp_path: 
     )
 
     assert crosswalk["reason"].str.len().gt(0).all()
-    assert set(crosswalk["relationship"]) == {"father_to_child"}
+    assert set(crosswalk.loc[crosswalk["merge"] == "both", "relationship"]) == {
+        "father_to_child"
+    }
+    assert set(crosswalk.loc[crosswalk["merge"] == "only_in_to", "relationship"]) == {"unknown"}
     assert "evidence" not in crosswalk.columns
 
 

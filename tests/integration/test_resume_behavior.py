@@ -77,7 +77,9 @@ def test_resume_archives_stale_raw_links_when_request_changes(
     )
 
     assert client.calls > first_calls
-    assert set(crosswalk["relationship"]) == {"father_to_child"}
+    assert set(crosswalk.loc[crosswalk["merge"] == "both", "relationship"]) == {
+        "father_to_child"
+    }
 
     run_dir = output_dir / "india_1951_2001_subdistrict"
     archived_files = list(run_dir.glob("links_raw.archive-*.jsonl"))

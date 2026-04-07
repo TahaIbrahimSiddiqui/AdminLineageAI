@@ -1,70 +1,44 @@
 # adminlineage
 
-`adminlineage` helps you build an administrative evolution key between two time periods.
+`adminlineage` builds an administrative evolution key between two periods.
 
-In plain terms, you give it one table from an older period, one table from a newer period, and the name columns you want to match. It scores candidate matches, asks Gemini to choose the most plausible links, and writes a crosswalk you can review.
+You give it one table from an earlier period, one table from a later period, the name columns you want to map, and any scope columns that must agree exactly. The package generates candidate matches, asks Gemini to choose among them, and writes a crosswalk plus review artifacts. The final evolution key includes a `merge` indicator so you can tell whether a row exists on both sides, only in the earlier-period table, or only in the later-period table.
 
-The supported workflow in this repo is one path only:
+The supported live workflow in this package is:
 
 - Gemini `gemini-3.1-flash-lite-preview`
 - Google Search grounding enabled
-- strict JSON output schema
-- sequential row-by-row adjudication for reliability
+- strict JSON output from the model
+- sequential live adjudication
 
-The package is meant to be easy to pick up:
+## What You Need Before Running
 
-- one install command
-- one `.env` file for the API key
-- one small pandas example
-- one small CLI config
-- sensible defaults so you can get a first run working quickly
+You need three things:
 
-## What It Produces
+- a Gemini API key in `GEMINI_API_KEY`, or in another environment variable name that you pass explicitly
+- one earlier-period table and one later-period table
+- one name column on each side, plus optional exact-match columns, IDs, and extra context columns
 
-The main output is an `evolution_key.csv` file. Each row is one proposed link from a source unit to a target unit, with:
-
-- `link_type` such as `rename`, `split`, `merge`, `transfer`, `no_match`, or `unknown`
-- `relationship` such as `father_to_father` or `father_to_child`
-- an optional short `evidence` summary when `evidence=True`
-- an optional `reason` field if you explicitly turn it on
-- `review_flags` and `review_reason` for manual QA
-
-It also writes a `review_queue.csv`, a `run_metadata.json`, and an internal `links_raw.jsonl` file used for resumability.
-
-## Install
-
-```bash
-python -m pip install -e .[dev,io]
-```
-
-## 2-Minute Setup
-
-Create a `.env` file in the repo root:
+Example environment setup:
 
 ```bash
 GEMINI_API_KEY=your_api_key_here
 ```
 
-You can use the included template too:
+The package can load a nearby `.env` file when it looks for the key.
 
-```bash
-cp .env.example .env
-```
-
-The package will load `.env` automatically without overwriting an API key you already exported in your shell.
-
-## Quickstart With Pandas
+## Quickstart In Python
 
 ```python
 import pandas as pd
 import adminlineage
 
-from_df = pd.read_csv("examples/data/from_units.csv")
-to_df = pd.read_csv("examples/data/to_units.csv")
+df_from = pd.read_csv("from_units.csv")
+df_to = pd.read_csv("to_units.csv")
 
 crosswalk_df, metadata = adminlineage.build_evolution_key(
-    from_df,
-    to_df,
+    df_from,
+    df_to,
     country="India",
     year_from=1951,
     year_to=2001,
@@ -78,17 +52,16 @@ crosswalk_df, metadata = adminlineage.build_evolution_key(
     reason=False,
     model="gemini-3.1-flash-lite-preview",
     gemini_api_key_env="GEMINI_API_KEY",
+    replay_enabled=True,
 )
 
 print(crosswalk_df.head())
 print(metadata["artifacts"])
 ```
 
-By default, outputs are written under `outputs/<auto_run_name>` in your current working directory.
+By default, outputs are written under `outputs/<country>_<year_from>_<year_to>_<map_col_from>`.
 
-## Quickstart With The CLI
-
-The example config is ready to use:
+## Quickstart In The CLI
 
 ```bash
 adminlineage preview --config examples/config/example.yml
@@ -97,9 +70,279 @@ adminlineage run --config examples/config/example.yml
 adminlineage export --input outputs/india_1951_2001_subdistrict/evolution_key.csv --format jsonl
 ```
 
-`from_path` and `to_path` in the config are resolved relative to the config file, not your shell location. That makes it much easier to run the CLI from anywhere once the config is in place.
+The package includes these example assets:
 
-## Minimal CLI Config
+- `examples/config/example.yml`
+- `examples/loaders/sample_loader.py`
+- `examples/adminlineage_gemini_3_1_flash_lite.ipynb`
+
+## Python API
+
+Public objects available from `import adminlineage`:
+
+- `build_evolution_key`
+- `preview_plan`
+- `validate_inputs`
+- `export_crosswalk`
+- `get_output_schema_definition`
+- `OUTPUT_SCHEMA_VERSION`
+- `__version__`
+
+### `build_evolution_key`
+
+Build the evolution key and write run artifacts.
+
+Required arguments:
+
+| Argument | Type | Meaning |
+|---|---|---|
+| `df_from` | `pd.DataFrame` | Earlier-period table |
+| `df_to` | `pd.DataFrame` | Later-period table |
+| `country` | `str` | Country label used in prompts and metadata |
+| `year_from` | `int \| str` | Earlier-period label |
+| `year_to` | `int \| str` | Later-period label |
+| `map_col_from` | `str` | Source name column |
+
+Optional arguments:
+
+| Argument | Type | Default | Meaning |
+|---|---|---|---|
+| `map_col_to` | `str \| None` | `None` | Target name column. Falls back to `map_col_from` when omitted. |
+| `exact_match` | `list[str] \| None` | `None` | Columns that must agree before comparison. |
+| `id_col_from` | `str \| None` | `None` | Source ID column. |
+| `id_col_to` | `str \| None` | `None` | Target ID column. |
+| `extra_context_cols` | `list[str] \| None` | `None` | Extra columns added to the model payload. |
+| `relationship` | `str` | `auto` | One of `auto`, `father_to_father`, `father_to_child`, `child_to_father`, `child_to_child`. |
+| `string_exact_match_prune` | `str` | `none` | `none` keeps exact-string hits in later AI work, `from` removes matched source rows from AI work, `to` removes matched source and target rows from later AI work. |
+| `evidence` | `bool` | `False` | Adds a short evidence summary and includes the `evidence` column. |
+| `reason` | `bool` | `False` | Adds a longer explanation in the `reason` column. |
+| `model` | `str` | `gemini-3.1-flash-lite-preview` | Gemini model name. |
+| `gemini_api_key_env` | `str` | `GEMINI_API_KEY` | Environment variable name used for the API key. |
+| `batch_size` | `int` | `25` | Compatibility setting. Live Gemini work is still executed sequentially. |
+| `max_candidates` | `int` | `15` | Candidate shortlist size per source row. |
+| `output_dir` | `str \| Path` | `outputs` | Base output directory for run artifacts. |
+| `seed` | `int` | `42` | Deterministic seed for repeatable request identity. |
+| `temperature` | `float` | `0.75` | Gemini temperature. |
+| `enable_google_search` | `bool` | `True` | Enables grounded Gemini adjudication. |
+| `request_timeout_seconds` | `int \| None` | `90` | Per-request timeout. |
+| `env_search_dir` | `str \| Path \| None` | `None` | Starting directory used when searching for `.env`. |
+| `replay_enabled` | `bool` | `False` | Reuses prior completed LLM work when the semantic request matches. |
+| `replay_store_dir` | `str \| Path \| None` | `None` | Replay store path. Falls back to `.adminlineage_replay` internally when replay is enabled. |
+
+Return value:
+
+- `tuple[pd.DataFrame, dict]`
+- first item: the crosswalk DataFrame
+- second item: run metadata with counts, warnings, request details, and artifact paths
+
+### `preview_plan`
+
+Preview grouping and candidate-generation behavior without calling Gemini.
+
+```python
+adminlineage.preview_plan(
+    df_from,
+    df_to,
+    *,
+    country,
+    year_from,
+    year_to,
+    map_col_from,
+    map_col_to=None,
+    exact_match=None,
+    id_col_from=None,
+    id_col_to=None,
+    extra_context_cols=None,
+    string_exact_match_prune="none",
+    max_candidates=15,
+)
+```
+
+Return value: a diagnostics dict describing validity, group sizes, exact-string hits, and candidate budgets.
+
+### `validate_inputs`
+
+Validate the two input tables without running the pipeline.
+
+```python
+adminlineage.validate_inputs(
+    df_from,
+    df_to,
+    *,
+    country,
+    map_col_from,
+    map_col_to=None,
+    exact_match=None,
+    id_col_from=None,
+    id_col_to=None,
+)
+```
+
+Return value: a diagnostics dict that reports whether the inputs are valid and what is missing or duplicated.
+
+### `export_crosswalk`
+
+Convert a materialized crosswalk file into another format.
+
+```python
+adminlineage.export_crosswalk(
+    input_path="outputs/india_1951_2001_subdistrict/evolution_key.csv",
+    output_format="jsonl",
+    output_path=None,
+)
+```
+
+Return value: the written output path.
+
+Supported output formats:
+
+- `csv`
+- `parquet`
+- `jsonl`
+
+### `get_output_schema_definition`
+
+Return a machine-readable description of the materialized output schema.
+
+```python
+schema = adminlineage.get_output_schema_definition(include_evidence=False)
+```
+
+Arguments:
+
+| Argument | Type | Default | Meaning |
+|---|---|---|---|
+| `include_evidence` | `bool` | `False` | Includes the `evidence` column in the returned schema definition. |
+
+Return value: a dict containing the schema version, ordered output columns, required columns, and enum values, including the `merge` indicator enum.
+
+### `OUTPUT_SCHEMA_VERSION`
+
+String constant for the current materialized output schema version.
+
+### `__version__`
+
+String constant for the package version.
+
+## CLI Reference
+
+Commands:
+
+```bash
+adminlineage run --config path/to/config.yml
+adminlineage preview --config path/to/config.yml
+adminlineage validate --config path/to/config.yml
+adminlineage export --input path/to/evolution_key.csv --format {csv|parquet|jsonl} [--output path]
+```
+
+`preview` and `validate` do not call Gemini. `run` writes the full artifact set. `export` converts an existing materialized crosswalk file.
+
+## YAML Config Reference
+
+Top-level sections:
+
+- `request`
+- `data`
+- `llm`
+- `pipeline`
+- `cache`
+- `retry`
+- `replay`
+- `output`
+
+### `request`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `country` | required | Country label used in prompts and metadata. |
+| `year_from` | required | Earlier-period label. |
+| `year_to` | required | Later-period label. |
+| `map_col_from` | required | Source name column. |
+| `map_col_to` | `null` | Target name column. Falls back to `map_col_from`. |
+| `exact_match` | `[]` | Columns that must agree before comparison. |
+| `id_col_from` | `null` | Source ID column. |
+| `id_col_to` | `null` | Target ID column. |
+| `extra_context_cols` | `[]` | Extra columns added to the model payload. |
+| `relationship` | `auto` | Relationship mode. |
+| `string_exact_match_prune` | `none` | Exact-string pruning mode. |
+| `evidence` | `false` | Adds the `evidence` column. |
+| `reason` | `false` | Adds the `reason` column. |
+
+### `data`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `mode` | `files` | One of `files` or `python_hook`. |
+| `from_path` | `null` | Required when `mode: files`. |
+| `to_path` | `null` | Required when `mode: files`. |
+| `callable` | `null` | Required when `mode: python_hook`. Uses `module:function` syntax. |
+| `params` | `{}` | Arbitrary config payload passed to the loader hook. |
+
+Loader contract for `python_hook` mode:
+
+```python
+def load_data(config: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
+    ...
+```
+
+The included example hook is `examples/loaders/sample_loader.py`.
+
+For file mode, `data.from_path` and `data.to_path` are resolved relative to the config file location, not your shell location.
+
+### `llm`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `provider` | `gemini` | Use `gemini` for live runs or `mock` for dry runs and testing. |
+| `model` | `gemini-3.1-flash-lite-preview` | Gemini model name. |
+| `gemini_api_key_env` | `GEMINI_API_KEY` | Environment variable name for the API key. |
+| `temperature` | `0.75` | Gemini temperature. |
+| `seed` | `42` | Deterministic seed. |
+| `enable_google_search` | `true` | Enables grounded adjudication. |
+| `request_timeout_seconds` | `90` | Per-request timeout. |
+
+### `pipeline`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `batch_size` | `25` | Compatibility setting. Live Gemini calls still run sequentially. |
+| `max_candidates` | `15` | Candidate shortlist size per source row. |
+| `review_score_threshold` | `0.6` | Rows below this score are flagged for review. |
+
+### `cache`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | Enables the SQLite LLM cache. |
+| `backend` | `sqlite` | Current cache backend. |
+| `path` | `llm_cache.sqlite` | Cache database path. |
+
+### `retry`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `max_attempts` | `6` | Maximum retry attempts for transient LLM failures. |
+| `base_delay_seconds` | `1.0` | Initial retry delay. |
+| `max_delay_seconds` | `20.0` | Maximum retry delay. |
+| `jitter_seconds` | `0.2` | Random jitter added to retry timing. |
+
+### `replay`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Enables exact replay for fully completed runs. |
+| `store_dir` | `.adminlineage_replay` | Replay bundle directory. |
+
+Relative replay store paths are resolved from the config file location.
+
+### `output`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `write_csv` | `true` | Writes `evolution_key.csv`. |
+| `write_parquet` | `true` | Writes `evolution_key.parquet`. |
+
+Minimal config shape:
 
 ```yaml
 request:
@@ -112,6 +355,7 @@ request:
   id_col_from: unit_id
   id_col_to: unit_id
   relationship: auto
+  string_exact_match_prune: none
   evidence: false
   reason: false
 
@@ -124,208 +368,94 @@ llm:
   provider: gemini
   model: gemini-3.1-flash-lite-preview
   gemini_api_key_env: GEMINI_API_KEY
+  temperature: 0.75
+  seed: 42
+  enable_google_search: true
+  request_timeout_seconds: 90
 
 pipeline:
-  batch_size: 1
+  batch_size: 25
   max_candidates: 15
+  review_score_threshold: 0.6
+
+cache:
+  enabled: true
+  backend: sqlite
+  path: llm_cache.sqlite
+
+retry:
+  max_attempts: 6
+  base_delay_seconds: 1.0
+  max_delay_seconds: 20.0
+  jitter_seconds: 0.2
+
+replay:
+  enabled: false
+  store_dir: .adminlineage_replay
+
+output:
+  write_csv: true
+  write_parquet: true
 ```
 
-## Core Inputs
+## Outputs And Utilities
 
-Required API arguments:
+### Main Artifacts
 
-| Argument | Meaning |
+| Artifact | Meaning |
 |---|---|
-| `df_from` | DataFrame for the earlier period |
-| `df_to` | DataFrame for the later period |
-| `country` | Country label used in prompts and metadata |
-| `year_from` | Label for the earlier period |
-| `year_to` | Label for the later period |
-| `map_col_from` | Name column in `df_from` to map |
+| `evolution_key.csv` | Main crosswalk output. |
+| `evolution_key.parquet` | Parquet version of the crosswalk output. |
+| `review_queue.csv` | Rows that need manual review. |
+| `run_metadata.json` | Run counts, warnings, request details, and artifact paths. |
+| `links_raw.jsonl` | Incremental per-row decision log used for resumability and replay publishing. |
 
-Common optional arguments:
-
-| Argument | Meaning |
-|---|---|
-| `map_col_to` | Name column in `df_to`; defaults to `map_col_from` |
-| `exact_match` | Columns that must match exactly before candidates are compared |
-| `id_col_from` | Stable ID column in `df_from` |
-| `id_col_to` | Stable ID column in `df_to` |
-| `extra_context_cols` | Extra columns included in the model payload |
-| `relationship` | `auto` by default, or one of the explicit relationship modes |
-| `evidence` | `False` by default; when `True`, asks the model for a short factual summary |
-| `reason` | `False` by default; when `True`, asks the model for a fuller explanation |
-| `model` | Gemini model name |
-| `gemini_api_key_env` | Environment variable name containing the API key |
-| `batch_size` | Compatibility setting; live Gemini runs execute sequentially |
-| `max_candidates` | Candidate shortlist size |
-| `seed` | Deterministic seed for repeatable runs |
-
-## Input Expectations
-
-### `df_from`
-
-| Column type | Required | Notes |
-|---|---|---|
-| `map_col_from` | yes | Source unit name |
-| each `exact_match` column | conditional | Required only if `exact_match` is provided |
-| `id_col_from` | no | Optional stable identifier |
-| each `extra_context_cols` member | no | Optional extra context |
-
-### `df_to`
-
-| Column type | Required | Notes |
-|---|---|---|
-| `map_col_to` or `map_col_from` | yes | Target unit name |
-| each `exact_match` column | conditional | Required only if `exact_match` is provided |
-| `id_col_to` | no | Optional stable identifier |
-| each `extra_context_cols` member | no | Optional extra context |
-
-## The Two Settings Most People Care About
-
-### `exact_match`
-
-Use `exact_match` when some parent-level columns should agree before a comparison is even allowed.
-
-Example:
-
-```python
-exact_match=["state", "district"]
-```
-
-That means a source row in `(S1, D1)` will only be compared against target rows in `(S1, D1)`.
-
-If you leave `exact_match` empty, the tool compares everything globally. That can be useful for rough exploration, but false positives are more likely.
-
-### `relationship`
-
-`relationship` tells the pipeline how to think about the hierarchical relation between matched units.
-
-Allowed values:
-
-- `auto`
-- `father_to_father`
-- `father_to_child`
-- `child_to_father`
-- `child_to_child`
-
-When you use `auto`, the model infers the relationship and writes it to the output. If you choose one explicit value, matched links are constrained to that relationship and the same value is written into the result rows.
-
-## Optional `evidence`
-
-`evidence` is off by default:
-
-```python
-evidence=False
-```
-
-That keeps the structured output smaller and avoids paying for short factual summaries unless you want them.
-
-If you set:
-
-```python
-evidence=True
-```
-
-the package asks the model for a short factual summary and includes an `evidence` column in the crosswalk output.
-
-## Optional `reason`
-
-`reason` is off by default:
-
-```python
-reason=False
-```
-
-That keeps the prompt leaner and the token bill lower.
-
-If you set:
-
-```python
-reason=True
-```
-
-the package asks the model for a fuller explanation and writes it to the `reason` column.
-
-Use it when you want more traceability. Skip it when you want faster, cheaper runs. The cost can go up noticeably on larger jobs.
-
-## Output Files
-
-For each run directory, you should expect:
-
-- `evolution_key.csv`
-- `evolution_key.parquet` if a parquet engine is available and writing is enabled
-- `review_queue.csv`
-- `run_metadata.json`
-- `links_raw.jsonl`
-- `run.log`
-
-## Output Columns
-
-Key columns in the crosswalk:
+### Crosswalk Columns
 
 | Column | Meaning |
 |---|---|
-| `from_name`, `to_name` | Raw source and target names |
-| `from_canonical_name`, `to_canonical_name` | Normalized names used in matching |
-| `from_id`, `to_id` | User IDs or internal fallback IDs |
-| `score` | Confidence score in `[0,1]` |
-| `link_type` | Match type |
-| `relationship` | Hierarchical relationship for the link |
-| `evidence` | Short factual summary, included only when `evidence=True` |
-| `reason` | Optional fuller explanation |
-| `constraints_passed` | Checks like `candidate_membership` and `exact_match` |
-| each `exact_match` column | Copied into the output for context |
-| `review_flags`, `review_reason` | Manual review hints |
+| `from_name`, `to_name` | Raw source and target names. |
+| `from_canonical_name`, `to_canonical_name` | Normalized names used during matching. |
+| `from_id`, `to_id` | User IDs when supplied, otherwise fallback internal IDs. |
+| `score` | Confidence in the chosen link, in `[0, 1]`. |
+| `link_type` | One of `rename`, `split`, `merge`, `transfer`, `no_match`, `unknown`. |
+| `relationship` | One of `father_to_father`, `father_to_child`, `child_to_father`, `child_to_child`, `unknown`. |
+| `merge` | `both` for matched rows, `only_in_from` for source-only rows, `only_in_to` for target-only rows appended after the source pass. |
+| `evidence` | Short grounded summary. Included only when `evidence=True`. |
+| `reason` | Longer explanation. Present as a column, but empty unless `reason=True`. |
+| exact-match columns | Copied context columns from the request, such as `state` or `district`. |
+| `country`, `year_from`, `year_to` | Request metadata. |
+| `run_id` | Deterministic run identifier. |
+| `from_key`, `to_key` | Internal stable keys used by the pipeline. |
+| `constraints_passed` | Constraint checks recorded for that row. |
+| `review_flags`, `review_reason` | QA flags and their comma-joined summary. |
 
-## How The Matching Works
+`review_queue.csv` is a filtered subset of the crosswalk for rows that were flagged for manual review. Target-only rows remain in the final evolution key with `merge="only_in_to"`.
 
-The pipeline is straightforward:
+## Operational Notes
 
-1. Normalize names.
-2. Group rows by `exact_match` when provided.
-3. Build a lexical shortlist for each source row.
-4. Ask Gemini 3.1 Flash-Lite to choose links from that shortlist only, one source row at a time, with Google Search grounding limited to shortlist verification.
-5. Write outputs and flag questionable rows for review.
+- `exact_match` scopes the candidate search. If you set `exact_match=["state", "district"]`, a row only compares against rows from the same `(state, district)` group.
+- Candidate generation happens before Gemini. `max_candidates` controls how many shortlist entries the model sees for each source row.
+- Live Gemini work is grounded with Google Search and returns strict JSON. The pipeline then materializes CSV and Parquet outputs itself.
+- Replay is opt-in. When `replay_enabled=True`, rerunning the same semantic request reuses the prior completed LLM output instead of calling Gemini again.
+- Cache is configured in CLI config. When enabled, the package uses a SQLite cache at `cache.path`.
+- Retry behavior is configurable in CLI config. Transient Gemini failures are retried according to the `retry` section before a row is marked unresolved.
+- `export_crosswalk` and `adminlineage export` convert an existing materialized crosswalk into `csv`, `parquet`, or `jsonl`.
 
-This is a model-assisted workflow, not an automatic truth machine. You still need to read `review_queue.csv` and spot-check important cases.
+## A Few Practical Defaults
 
-## Troubleshooting
+- `model="gemini-3.1-flash-lite-preview"`
+- `temperature=0.75`
+- `enable_google_search=True`
+- `evidence=False`
+- `reason=False`
+- `relationship="auto"`
+- `string_exact_match_prune="none"`
 
-### “Missing Gemini API key”
+Those are the current defaults. Change them when you need replay, evidence, stricter scoping, or different review thresholds.
 
-- Make sure `.env` exists in the repo root, or
-- export the variable named in `gemini_api_key_env`
+## Citation
 
-### Preview or validate fails
+If you use `adminlineage` in published work, please cite:
 
-- Check that every `exact_match` column exists in both dataframes
-- Check that `map_col_from` and `map_col_to` point to real columns
-- Check that the config file paths are correct relative to the config file
-
-### The run looks too broad
-
-- Add or tighten `exact_match`
-- Lower `max_candidates`
-- Use a more specific `map_col_to` if the target name column differs
-
-### The results feel too thin
-
-- Turn on `evidence=True`
-- Turn on `reason=True`
-- Add a few `extra_context_cols`
-- Review borderline rows in `review_queue.csv`
-
-## Documentation
-
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/usage.md`](docs/usage.md)
-- [`docs/output_schema.json`](docs/output_schema.json)
-
-## Development
-
-```bash
-ruff check .
-python -m pytest
-python -m build
-```
+Siddiqui, T. I., and Vetharenian Hari.

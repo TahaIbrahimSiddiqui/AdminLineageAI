@@ -408,6 +408,14 @@ def _final_relationship(
     return "unknown"
 
 
+def _merge_indicator(*, link_type: str, to_key: str | None) -> str:
+    """Return the merge-style indicator used in the final evolution key."""
+
+    if to_key is not None and link_type in _MATCHED_LINK_TYPES:
+        return "both"
+    return "only_in_from"
+
+
 def _artifact_paths(run_dir: Path) -> dict[str, Path]:
     return {
         "links_raw": run_dir / "links_raw.jsonl",
@@ -1338,6 +1346,7 @@ def run_pipeline(
                         link_type=link_type,
                         to_key=to_key,
                     ),
+                    "merge": _merge_indicator(link_type=link_type, to_key=to_key),
                     "country": country,
                     "year_from": year_from,
                     "year_to": year_to,
@@ -1354,6 +1363,46 @@ def run_pipeline(
                 row["reason"] = reason_text[:800] if reason else ""
                 row.update(exact_match_payload)
                 rows.append(row)
+
+        matched_to_keys = {
+            row["to_key"]
+            for row in rows
+            if row["merge"] == "both" and row["to_key"] is not None
+        }
+        for to_key in df_to_work["_to_key"].tolist():
+            if to_key in matched_to_keys:
+                continue
+
+            to_row = to_lookup.loc[to_key]
+            row = {
+                "from_name": None,
+                "to_name": to_row["_to_name_raw"],
+                "from_canonical_name": None,
+                "to_canonical_name": to_row["_to_canonical_name"],
+                "from_id": None,
+                "to_id": to_row["_to_id"],
+                "score": 0.0,
+                "link_type": "unknown",
+                "relationship": "unknown",
+                "merge": "only_in_to",
+                "country": country,
+                "year_from": year_from,
+                "year_to": year_to,
+                "run_id": run_id,
+                "from_key": None,
+                "to_key": to_key,
+                "constraints_passed": {"target_only_row": True},
+            }
+            if evidence:
+                row["evidence"] = (
+                    "Target unit appears in the later-period table but was not used by any "
+                    "matched source row."
+                )
+            row["reason"] = (
+                "No earlier-period source row was linked to this target unit." if reason else ""
+            )
+            row.update({col: to_row[col] for col in exact_match})
+            rows.append(row)
         return rows
 
     def _build_crosswalk_and_review_queue(

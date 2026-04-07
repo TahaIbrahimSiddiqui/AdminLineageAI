@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .schema import OUTPUT_SCHEMA_VERSION, PROMPT_SCHEMA_VERSION
 
 LinkType = Literal["rename", "split", "merge", "transfer", "no_match", "unknown"]
+MergeType = Literal["both", "only_in_from", "only_in_to"]
 RelationshipType = Literal[
     "father_to_father",
     "father_to_child",
@@ -87,6 +88,7 @@ class CandidateLink(BaseModel):
     score: float = Field(ge=0.0, le=1.0)
     link_type: LinkType
     relationship: RelationshipType = "unknown"
+    merge: MergeType = "both"
     evidence: str = ""
     reason: str = ""
     constraints_passed: dict[str, bool] = Field(default_factory=dict)

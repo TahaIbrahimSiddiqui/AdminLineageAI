@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from adminlineage.replay import build_replay_identity
-from adminlineage.schema import normalize_nullable_output_columns
+from adminlineage.schema import get_output_schema_definition, normalize_nullable_output_columns
 
 
 def _build_identity(
@@ -104,7 +104,10 @@ def test_replay_key_changes_when_semantic_request_changes():
 def test_normalize_nullable_output_columns_converts_string_dtype_targets_to_object():
     crosswalk = pd.DataFrame(
         {
-            "from_key": ["from_0", "from_1"],
+            "from_name": pd.Series(["North Block", pd.NA], dtype="string"),
+            "from_canonical_name": pd.Series(["north block", pd.NA], dtype="string"),
+            "from_id": pd.Series(["f1", pd.NA], dtype="string"),
+            "from_key": pd.Series(["from_0", pd.NA], dtype="string"),
             "to_key": pd.Series(["to_0", pd.NA], dtype="string"),
             "to_name": pd.Series(["North Block", pd.NA], dtype="string"),
             "to_canonical_name": pd.Series(["north block", pd.NA], dtype="string"),
@@ -114,11 +117,27 @@ def test_normalize_nullable_output_columns_converts_string_dtype_targets_to_obje
 
     normalized = normalize_nullable_output_columns(crosswalk)
 
+    assert normalized["from_name"].dtype == object
+    assert normalized["from_canonical_name"].dtype == object
+    assert normalized["from_id"].dtype == object
+    assert normalized["from_key"].dtype == object
     assert normalized["to_key"].dtype == object
     assert normalized["to_name"].dtype == object
     assert normalized["to_canonical_name"].dtype == object
     assert normalized["to_id"].dtype == object
+    assert normalized.loc[1, "from_name"] is None
+    assert normalized.loc[1, "from_canonical_name"] is None
+    assert normalized.loc[1, "from_id"] is None
+    assert normalized.loc[1, "from_key"] is None
     assert normalized.loc[1, "to_key"] is None
     assert normalized.loc[1, "to_name"] is None
     assert normalized.loc[1, "to_canonical_name"] is None
     assert normalized.loc[1, "to_id"] is None
+
+
+def test_output_schema_definition_includes_merge_column_and_enum():
+    schema = get_output_schema_definition(include_evidence=False)
+
+    assert "merge" in schema["crosswalk_columns"]
+    assert "merge" in schema["required_output_columns"]
+    assert schema["merge_enum"] == ["both", "only_in_from", "only_in_to"]

@@ -48,8 +48,14 @@ def apply_global_flags(
         return crosswalk.copy()
 
     out = crosswalk.copy()
-    fan_out = out[out["to_key"].notna()].groupby("from_key")["to_key"].nunique().to_dict()
-    fan_in = out[out["to_key"].notna()].groupby("to_key")["from_key"].nunique().to_dict()
+    matched_mask = out["to_key"].notna() & out["from_key"].notna()
+    if "merge" in out.columns:
+        matched_mask &= out["merge"].eq("both")
+    else:
+        matched_mask &= out["link_type"].isin(["rename", "split", "merge", "transfer"])
+    matched_rows = out[matched_mask]
+    fan_out = matched_rows.groupby("from_key")["to_key"].nunique().to_dict()
+    fan_in = matched_rows.groupby("to_key")["from_key"].nunique().to_dict()
 
     flags_column: list[list[str]] = []
     for _, row in out.iterrows():

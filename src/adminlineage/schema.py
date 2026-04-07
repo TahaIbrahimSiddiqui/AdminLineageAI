@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-OUTPUT_SCHEMA_VERSION = "2.1.0"
+OUTPUT_SCHEMA_VERSION = "2.2.0"
 PROMPT_SCHEMA_VERSION = "2.3.0"
 
 LINK_TYPES = (
@@ -32,6 +32,12 @@ REQUEST_RELATIONSHIP_TYPES = (
     "child_to_child",
 )
 
+MERGE_TYPES = (
+    "both",
+    "only_in_from",
+    "only_in_to",
+)
+
 _CROSSWALK_COLUMNS_BEFORE_EXPLANATIONS = [
     "from_name",
     "to_name",
@@ -42,6 +48,7 @@ _CROSSWALK_COLUMNS_BEFORE_EXPLANATIONS = [
     "score",
     "link_type",
     "relationship",
+    "merge",
 ]
 
 _CROSSWALK_COLUMNS_AFTER_EXPLANATIONS = [
@@ -67,13 +74,22 @@ def get_crosswalk_base_columns(*, include_evidence: bool) -> list[str]:
 
 
 def normalize_nullable_output_columns(crosswalk: pd.DataFrame) -> pd.DataFrame:
-    """Normalize target-side output columns to plain object dtype with Python None."""
+    """Normalize nullable output columns to plain object dtype with Python None."""
 
     if crosswalk.empty:
         return crosswalk.copy()
 
     normalized = crosswalk.copy()
-    for column in ["to_key", "to_name", "to_canonical_name", "to_id"]:
+    for column in [
+        "from_name",
+        "to_name",
+        "from_canonical_name",
+        "to_canonical_name",
+        "from_id",
+        "to_id",
+        "from_key",
+        "to_key",
+    ]:
         if column not in normalized.columns:
             continue
         series = normalized[column].astype(object)
@@ -91,6 +107,7 @@ def get_output_schema_definition(*, include_evidence: bool = False) -> dict:
         "score",
         "link_type",
         "relationship",
+        "merge",
         "reason",
         "country",
         "year_from",
@@ -107,6 +124,7 @@ def get_output_schema_definition(*, include_evidence: bool = False) -> dict:
         "crosswalk_columns": crosswalk_columns,
         "link_type_enum": list(LINK_TYPES),
         "relationship_enum": list(RELATIONSHIP_TYPES),
+        "merge_enum": list(MERGE_TYPES),
         "conditional_columns": {
             "evidence": "Included only when request.evidence is true.",
             "reason": "Always present; empty unless request.reason is true.",
@@ -115,5 +133,10 @@ def get_output_schema_definition(*, include_evidence: bool = False) -> dict:
         "notes": {
             "exact_match_columns": "Appended dynamically from request.exact_match",
             "constraints_passed": "JSON object serialized as dict in DataFrame cells",
+            "merge": (
+                "both for matched source-target rows, only_in_from for unmatched "
+                "source rows, only_in_to for unmatched target rows appended after "
+                "the source pass"
+            ),
         },
     }

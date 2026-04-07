@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from .schema import normalize_nullable_output_columns
+from .schema import OUTPUT_SCHEMA_VERSION, normalize_nullable_output_columns
 from .utils import ensure_dir, now_iso, stable_hash
 
 _CROSSWALK_JSON = "crosswalk.records.json"
@@ -102,6 +102,7 @@ def build_replay_identity(
     identity = {
         "request": request_payload,
         "llm_backend": llm_backend,
+        "output_schema_version": OUTPUT_SCHEMA_VERSION,
         "extra_context_cols": extra_context_cols,
         "from_columns": from_columns,
         "to_columns": to_columns,

@@ -222,7 +222,9 @@ def test_pipeline_replay_miss_runs_live_when_semantic_request_changes(
     assert second_metadata["execution_mode"] == "live"
     assert second_metadata["replay_hit"] is False
     assert second_metadata["replay_key"] != first_metadata["replay_key"]
-    assert set(crosswalk["relationship"]) == {"father_to_child"}
+    assert set(crosswalk.loc[crosswalk["merge"] == "both", "relationship"]) == {
+        "father_to_child"
+    }
 
 
 def test_pipeline_replay_corruption_falls_back_to_live(

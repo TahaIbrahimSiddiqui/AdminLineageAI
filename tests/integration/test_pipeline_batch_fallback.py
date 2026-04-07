@@ -91,7 +91,8 @@ def test_pipeline_runs_in_single_row_mode_without_batch_split_retries(
     )
 
     assert client.batch_sizes == [1, 1, 1]
-    assert crosswalk["link_type"].eq("rename").all()
+    assert crosswalk.loc[crosswalk["merge"] == "both", "link_type"].eq("rename").all()
+    assert "only_in_to" in set(crosswalk["merge"])
     assert not any("No completed adjudication record." in text for text in crosswalk["evidence"])
     assert any(
         "Using effective batch_size=1 instead." in warning for warning in metadata["warnings"]
@@ -198,6 +199,9 @@ def test_normalize_nullable_crosswalk_columns_converts_missing_targets_to_none()
     crosswalk = pd.DataFrame(
         [
             {
+                "from_name": "North Block",
+                "from_canonical_name": "north block",
+                "from_id": "f1",
                 "from_key": "from_0",
                 "to_key": "to_0",
                 "to_name": "North Block",
@@ -205,7 +209,10 @@ def test_normalize_nullable_crosswalk_columns_converts_missing_targets_to_none()
                 "to_id": "t1",
             },
             {
-                "from_key": "from_1",
+                "from_name": pd.NA,
+                "from_canonical_name": None,
+                "from_id": float("nan"),
+                "from_key": pd.NA,
                 "to_key": float("nan"),
                 "to_name": pd.NA,
                 "to_canonical_name": None,
@@ -215,8 +222,12 @@ def test_normalize_nullable_crosswalk_columns_converts_missing_targets_to_none()
     )
 
     normalized = normalize_nullable_output_columns(crosswalk)
-    missing_row = normalized.loc[normalized["from_key"] == "from_1"].iloc[0]
+    missing_row = normalized.loc[normalized["to_name"].isna()].iloc[0]
 
+    assert missing_row["from_name"] is None
+    assert missing_row["from_canonical_name"] is None
+    assert missing_row["from_id"] is None
+    assert missing_row["from_key"] is None
     assert missing_row["to_key"] is None
     assert missing_row["to_name"] is None
     assert missing_row["to_canonical_name"] is None
