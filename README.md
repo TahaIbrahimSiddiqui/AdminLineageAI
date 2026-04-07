@@ -1,15 +1,27 @@
-# adminlineage
+# AdminLineageAI
 
-`adminlineage` builds an administrative evolution key between two periods.
+AdminLineageAI builds administrative evolution keys between two periods.
+
+AdminLineageAI makes crosswalks between administrative locations such as districts (ADM2), subdistricts (ADM3), states (ADM1), and countries (ADM0) across two datasets that may come from completely different sources. It uses AI to compare likely matches, reason over spelling variants and language-specific forms, and produce a usable crosswalk plus review artifacts.
 
 You give it one table from an earlier period, one table from a later period, the name columns you want to map, and any scope columns that must agree exactly. The package generates candidate matches, asks Gemini to choose among them, and writes a crosswalk plus review artifacts. The final evolution key includes a `merge` indicator so you can tell whether a row exists on both sides, only in the earlier-period table, or only in the later-period table.
 
-The supported live workflow in this package is:
+## Common Use Cases
+
+- Matching a scheme dataset from a website against a standard administrative list such as a census table. For example, one source may write `Paschimi Singhbhum` while another uses `West Singhbhum`. Plain fuzzy matching often misses cases like this unless you manually standardize prefixes and suffixes first. AI can do better because it has context, including that `paschim` in Hindi means `west`. The same kind of issue shows up across many widely spoken languages.
+- Handling administrative churn. Districts and other units are regularly split, merged, renamed, or grouped differently, and there is often no up-to-date public evolution list for newly created units.
+- Creating entirely new evolution crosswalks that do not already exist between two sources or two periods.
+
+## Warning
+
+Treat these crosswalks as assistive outputs and cross-verify them, especially in important or high-stakes cases.
+
+The supported live workflow in AdminLineageAI is:
 
 - Gemini `gemini-3.1-flash-lite-preview`
 - Google Search grounding enabled
 - strict JSON output from the model
-- sequential live adjudication
+- user-controlled batching with automatic split fallback on failed multi-row requests
 
 ## What You Need Before Running
 
@@ -118,7 +130,7 @@ Optional arguments:
 | `reason` | `bool` | `False` | Adds a longer explanation in the `reason` column. |
 | `model` | `str` | `gemini-3.1-flash-lite-preview` | Gemini model name. |
 | `gemini_api_key_env` | `str` | `GEMINI_API_KEY` | Environment variable name used for the API key. |
-| `batch_size` | `int` | `25` | Compatibility setting. Live Gemini work is still executed sequentially. |
+| `batch_size` | `int` | `25` | Maximum number of source rows per Gemini request. When a multi-row request fails, the pipeline retries in smaller batches. |
 | `max_candidates` | `int` | `15` | Candidate shortlist size per source row. |
 | `output_dir` | `str \| Path` | `outputs` | Base output directory for run artifacts. |
 | `seed` | `int` | `42` | Deterministic seed for repeatable request identity. |
@@ -305,7 +317,7 @@ For file mode, `data.from_path` and `data.to_path` are resolved relative to the 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `batch_size` | `25` | Compatibility setting. Live Gemini calls still run sequentially. |
+| `batch_size` | `25` | Maximum number of source rows per Gemini request. Failed multi-row requests are retried in smaller batches. |
 | `max_candidates` | `15` | Candidate shortlist size per source row. |
 | `review_score_threshold` | `0.6` | Rows below this score are flagged for review. |
 
@@ -456,6 +468,6 @@ Those are the current defaults. Change them when you need replay, evidence, stri
 
 ## Citation
 
-If you use `adminlineage` in published work, please cite:
+If you use AdminLineageAI in published work, please cite:
 
 Siddiqui, T. I., and Vetharenian Hari.
