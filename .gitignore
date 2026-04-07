@@ -9,7 +9,6 @@ __pycache__/
 .env
 .venv/
 .adminlineage_replay/
-examples/notebooks/outputs/
 outputs/
 build/
 dist/
