@@ -147,7 +147,7 @@ class CapturingGeminiClient(GeminiClient):
         return "inconclusive"
 
 
-class TwoPassGroundingClient(BaseLLMClient):
+class GroundedSequentialClient(BaseLLMClient):
     def __init__(self) -> None:
         self.json_payloads: list[dict[str, Any]] = []
         self.json_search_flags: list[bool] = []
@@ -246,7 +246,7 @@ def test_pipeline_keeps_batch_adjudication_structured_when_search_is_enabled(
         id_col_to="unit_id",
         relationship="auto",
         reason=False,
-        model="gemini-2.5-flash",
+        model="gemini-3.1-flash-lite-preview",
         batch_size=2,
         max_candidates=3,
         output_dir=tmp_path / "outputs_prompt_behavior",
@@ -285,7 +285,7 @@ def test_pipeline_runs_single_pass_grounding_for_each_ai_row(
             "unit_id": ["t1", "t2"],
         }
     )
-    client = TwoPassGroundingClient()
+    client = GroundedSequentialClient()
 
     crosswalk, metadata = run_pipeline(
         df_from,
@@ -300,10 +300,10 @@ def test_pipeline_runs_single_pass_grounding_for_each_ai_row(
         id_col_to="unit_id",
         relationship="auto",
         reason=False,
-        model="gemini-2.5-pro",
+        model="gemini-3.1-flash-lite-preview",
         batch_size=2,
         max_candidates=3,
-        output_dir=tmp_path / "outputs_prompt_behavior_two_pass",
+        output_dir=tmp_path / "outputs_prompt_behavior_grounded",
         llm_client=client,
         temperature=0.75,
         enable_google_search=True,
@@ -351,7 +351,7 @@ def test_pipeline_uses_sequential_grounded_json_calls_for_gemini_runs(tmp_path: 
         id_col_to="unit_id",
         relationship="auto",
         reason=False,
-        model="gemini-2.5-flash",
+        model="gemini-3.1-flash-lite-preview",
         batch_size=25,
         max_candidates=15,
         output_dir=tmp_path / "outputs_large_batch_cap",
@@ -399,7 +399,7 @@ def test_string_exact_match_prune_from_skips_exact_from_rows_but_keeps_to_candid
         relationship="auto",
         string_exact_match_prune="from",
         reason=False,
-        model="gemini-2.5-flash",
+        model="gemini-3.1-flash-lite-preview",
         batch_size=10,
         max_candidates=5,
         output_dir=tmp_path / "outputs_prune_from",
@@ -452,7 +452,7 @@ def test_string_exact_match_prune_to_removes_exact_to_candidates_from_ai_pool(tm
         relationship="auto",
         string_exact_match_prune="to",
         reason=False,
-        model="gemini-2.5-flash",
+        model="gemini-3.1-flash-lite-preview",
         batch_size=10,
         max_candidates=5,
         output_dir=tmp_path / "outputs_prune_to",
@@ -500,7 +500,7 @@ def test_string_exact_match_prune_none_leaves_all_rows_for_ai(tmp_path: Path):
         relationship="auto",
         string_exact_match_prune="none",
         reason=False,
-        model="gemini-2.5-flash",
+        model="gemini-3.1-flash-lite-preview",
         batch_size=10,
         max_candidates=5,
         output_dir=tmp_path / "outputs_prune_none",

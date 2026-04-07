@@ -68,7 +68,7 @@ data:
   to_path: ../data/to.csv
 llm:
   provider: mock
-  model: gemini-2.5-pro
+  model: gemini-3.1-flash-lite-preview
   temperature: 0.75
   enable_google_search: true
 pipeline:

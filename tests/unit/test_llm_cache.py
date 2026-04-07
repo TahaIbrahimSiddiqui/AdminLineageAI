@@ -12,7 +12,7 @@ def test_cache_separates_temperature_and_grounding_settings(tmp_path):
         "enable_google_search": False,
     }
     cache.set(
-        model="gemini-3.1-pro-preview",
+        model="gemini-3.1-flash-lite-preview",
         prompt="{}",
         schema_version="1.0.0",
         generation_settings=baseline_settings,
@@ -22,7 +22,7 @@ def test_cache_separates_temperature_and_grounding_settings(tmp_path):
 
     assert (
         cache.get(
-            model="gemini-3.1-pro-preview",
+            model="gemini-3.1-flash-lite-preview",
             prompt="{}",
             schema_version="1.0.0",
             generation_settings=baseline_settings,
@@ -31,7 +31,7 @@ def test_cache_separates_temperature_and_grounding_settings(tmp_path):
     )
     assert (
         cache.get(
-            model="gemini-3.1-pro-preview",
+            model="gemini-3.1-flash-lite-preview",
             prompt="{}",
             schema_version="1.0.0",
             generation_settings={
@@ -43,7 +43,7 @@ def test_cache_separates_temperature_and_grounding_settings(tmp_path):
     )
     assert (
         cache.get(
-            model="gemini-3.1-pro-preview",
+            model="gemini-3.1-flash-lite-preview",
             prompt="{}",
             schema_version="1.0.0",
             generation_settings={

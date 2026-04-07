@@ -61,7 +61,7 @@ def test_gemini_client_reads_api_key_from_dotenv(tmp_path, monkeypatch):
     client = GeminiClient(api_key_env="TEST_GEMINI_KEY", env_search_dir=tmp_path)
     client._call_model(
         "{}",
-        model="gemini-2.5-pro",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.0,
         seed=42,
         enable_google_search=False,
@@ -120,7 +120,7 @@ def test_gemini_client_builds_search_tool_config(tmp_path, monkeypatch):
 
     client._call_model(
         "{}",
-        model="gemini-3.1-pro-preview",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.75,
         seed=99,
         enable_google_search=True,
@@ -137,7 +137,7 @@ def test_gemini_client_builds_search_tool_config(tmp_path, monkeypatch):
 
     client._call_model(
         "{}",
-        model="gemini-3.1-pro-preview",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.75,
         seed=99,
         enable_google_search=True,
@@ -152,7 +152,7 @@ def test_gemini_client_builds_search_tool_config(tmp_path, monkeypatch):
 
     client._call_model(
         "{}",
-        model="gemini-3.1-pro-preview",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.75,
         seed=99,
         enable_google_search=False,
@@ -245,7 +245,7 @@ def test_gemini_client_retries_empty_response(tmp_path, monkeypatch):
 
     result = client._call_model(
         "{}",
-        model="gemini-2.5-pro",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.0,
         seed=42,
         enable_google_search=False,
@@ -281,7 +281,7 @@ def test_gemini_client_falls_back_when_response_schema_is_rejected(monkeypatch):
     result = client.generate_json(
         prompt="Return JSON only",
         schema=DummyBatchResponse,
-        model="gemini-2.5-flash",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.0,
         seed=42,
     )
@@ -312,7 +312,7 @@ def test_gemini_client_parses_fenced_json_without_repair(monkeypatch):
     result = client.generate_json(
         prompt="Return JSON only",
         schema=DummyBatchResponse,
-        model="gemini-2.5-flash",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.0,
         seed=42,
         enable_google_search=True,
@@ -383,7 +383,7 @@ def test_gemini_client_retries_transient_provider_errors(tmp_path, monkeypatch):
 
     result = client._call_model(
         "{}",
-        model="gemini-2.5-pro",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.0,
         seed=42,
         enable_google_search=False,
@@ -450,7 +450,7 @@ def test_gemini_client_retries_dns_lookup_errors(tmp_path, monkeypatch):
 
     result = client._call_model(
         "{}",
-        model="gemini-2.5-pro",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.0,
         seed=42,
         enable_google_search=False,
@@ -517,7 +517,7 @@ def test_gemini_client_retries_server_disconnect_errors(tmp_path, monkeypatch):
 
     result = client._call_model(
         "{}",
-        model="gemini-2.5-pro",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.0,
         seed=42,
         enable_google_search=False,
@@ -598,7 +598,7 @@ def test_gemini_client_retries_rate_limit_errors(tmp_path, monkeypatch):
 
     result = client._call_model(
         "{}",
-        model="gemini-2.5-pro",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.0,
         seed=42,
         enable_google_search=False,
@@ -678,7 +678,7 @@ def test_gemini_client_raises_spending_cap_error_without_retry(tmp_path, monkeyp
     with pytest.raises(QuotaExceededLLMError, match="spending cap reached"):
         client._call_model(
             "{}",
-            model="gemini-2.5-pro",
+            model="gemini-3.1-flash-lite-preview",
             temperature=0.0,
             seed=42,
             enable_google_search=False,
@@ -743,14 +743,14 @@ def test_gemini_client_spaces_requests(tmp_path, monkeypatch):
 
     client._call_model(
         "{}",
-        model="gemini-2.5-pro",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.0,
         seed=42,
         enable_google_search=False,
     )
     client._call_model(
         "{}",
-        model="gemini-2.5-pro",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.0,
         seed=42,
         enable_google_search=False,
@@ -811,7 +811,7 @@ def test_gemini_client_raises_after_repeated_empty_response(tmp_path, monkeypatc
     with pytest.raises(RuntimeError, match="empty response"):
         client._call_model(
             "{}",
-            model="gemini-2.5-pro",
+            model="gemini-3.1-flash-lite-preview",
             temperature=0.0,
             seed=42,
             enable_google_search=False,
@@ -850,7 +850,7 @@ def test_gemini_client_repair_call_uses_zero_temperature(monkeypatch):
     result = client.generate_json(
         prompt="Return JSON only",
         schema=DummyBatchResponse,
-        model="gemini-2.5-pro",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.75,
         seed=42,
         enable_google_search=True,
@@ -886,7 +886,7 @@ def test_gemini_client_generate_text_preserves_semantic_temperature(monkeypatch)
 
     result = client.generate_text(
         prompt="Verify shortlist candidates",
-        model="gemini-2.5-pro",
+        model="gemini-3.1-flash-lite-preview",
         temperature=0.75,
         seed=7,
         enable_google_search=True,
@@ -952,7 +952,7 @@ def test_gemini_client_limits_grounded_text_retry_attempts(tmp_path, monkeypatch
     with pytest.raises(RuntimeError, match="503 UNAVAILABLE"):
         client.generate_text(
             prompt="Verify shortlist candidates",
-            model="gemini-2.5-pro",
+            model="gemini-3.1-flash-lite-preview",
             temperature=0.75,
             seed=42,
             enable_google_search=True,
