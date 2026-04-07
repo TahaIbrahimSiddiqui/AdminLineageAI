@@ -9,7 +9,8 @@ import pytest
 from pydantic import BaseModel
 
 from adminlineage.llm.base import BaseLLMClient, QuotaExceededLLMError, TransientLLMError
-from adminlineage.pipeline import _normalize_nullable_crosswalk_columns, run_pipeline
+from adminlineage.pipeline import run_pipeline
+from adminlineage.schema import normalize_nullable_output_columns
 
 
 class SplitOnLargeBatchClient(BaseLLMClient):
@@ -213,7 +214,7 @@ def test_normalize_nullable_crosswalk_columns_converts_missing_targets_to_none()
         ]
     )
 
-    normalized = _normalize_nullable_crosswalk_columns(crosswalk)
+    normalized = normalize_nullable_output_columns(crosswalk)
     missing_row = normalized.loc[normalized["from_key"] == "from_1"].iloc[0]
 
     assert missing_row["to_key"] is None

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pandas as pd
+
 OUTPUT_SCHEMA_VERSION = "2.1.0"
 PROMPT_SCHEMA_VERSION = "2.3.0"
 
@@ -62,6 +64,21 @@ def get_crosswalk_base_columns(*, include_evidence: bool) -> list[str]:
     columns.append("reason")
     columns.extend(_CROSSWALK_COLUMNS_AFTER_EXPLANATIONS)
     return columns
+
+
+def normalize_nullable_output_columns(crosswalk: pd.DataFrame) -> pd.DataFrame:
+    """Normalize target-side output columns to plain object dtype with Python None."""
+
+    if crosswalk.empty:
+        return crosswalk.copy()
+
+    normalized = crosswalk.copy()
+    for column in ["to_key", "to_name", "to_canonical_name", "to_id"]:
+        if column not in normalized.columns:
+            continue
+        series = normalized[column].astype(object)
+        normalized[column] = series.where(series.notna(), None)
+    return normalized
 
 
 def get_output_schema_definition(*, include_evidence: bool = False) -> dict:

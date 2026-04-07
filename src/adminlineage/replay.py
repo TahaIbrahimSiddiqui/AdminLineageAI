@@ -9,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 
+from .schema import normalize_nullable_output_columns
 from .utils import ensure_dir, now_iso, stable_hash
 
 _CROSSWALK_JSON = "crosswalk.records.json"
@@ -138,7 +139,7 @@ def _deserialize_dataframe(payload: dict[str, Any]) -> pd.DataFrame:
     for col in columns:
         if col not in frame.columns:
             frame[col] = None
-    return frame[columns]
+    return normalize_nullable_output_columns(frame[columns])
 
 
 def publish_replay_bundle(

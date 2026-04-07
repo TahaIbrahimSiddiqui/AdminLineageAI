@@ -33,7 +33,12 @@ from .replay import (
     resolve_replay_store_dir,
 )
 from .review import apply_global_flags, build_review_queue, coverage_summary, summarize_counts
-from .schema import OUTPUT_SCHEMA_VERSION, RELATIONSHIP_TYPES, get_crosswalk_base_columns
+from .schema import (
+    OUTPUT_SCHEMA_VERSION,
+    RELATIONSHIP_TYPES,
+    get_crosswalk_base_columns,
+    normalize_nullable_output_columns,
+)
 from .utils import build_run_id, chunked, ensure_dir, now_iso, sanitize_name
 from .validation import collapse_duplicate_match_keys, validate_inputs_data
 
@@ -401,21 +406,6 @@ def _final_relationship(
     if value in _VALID_RELATIONSHIPS:
         return value
     return "unknown"
-
-
-def _normalize_nullable_crosswalk_columns(crosswalk: pd.DataFrame) -> pd.DataFrame:
-    """Normalize missing target-side output fields to Python None."""
-
-    if crosswalk.empty:
-        return crosswalk.copy()
-
-    normalized = crosswalk.copy()
-    for column in ["to_key", "to_name", "to_canonical_name", "to_id"]:
-        if column not in normalized.columns:
-            continue
-        series = normalized[column].astype(object)
-        normalized[column] = series.where(series.notna(), None)
-    return normalized
 
 
 def _artifact_paths(run_dir: Path) -> dict[str, Path]:
@@ -1377,7 +1367,7 @@ def run_pipeline(
                 crosswalk[col] = "" if col == "reason" else None
 
         crosswalk = apply_global_flags(crosswalk, low_score_threshold=review_score_threshold)
-        crosswalk = _normalize_nullable_crosswalk_columns(crosswalk)
+        crosswalk = normalize_nullable_output_columns(crosswalk)
         exact_match_order = exact_match.copy()
         preferred_order = crosswalk_base_columns + exact_match_order + [
             "review_flags",

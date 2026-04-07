@@ -7,7 +7,7 @@ import json
 import re
 import subprocess
 from collections.abc import Iterable, Iterator
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,7 @@ def build_run_id(request_dict: dict[str, Any], seed: int) -> str:
 def now_iso() -> str:
     """Current UTC timestamp in ISO format."""
 
-    return datetime.now(tz=UTC).isoformat()
+    return datetime.now(tz=timezone.utc).isoformat()
 
 
 def sanitize_name(value: str) -> str:

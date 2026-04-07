@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from adminlineage.replay import build_replay_identity
+from adminlineage.schema import normalize_nullable_output_columns
 
 
 def _build_identity(
@@ -98,3 +99,26 @@ def test_replay_key_changes_when_semantic_request_changes():
     changed = _build_identity(df_from, df_to, relationship="father_to_child")
 
     assert baseline["replay_key"] != changed["replay_key"]
+
+
+def test_normalize_nullable_output_columns_converts_string_dtype_targets_to_object():
+    crosswalk = pd.DataFrame(
+        {
+            "from_key": ["from_0", "from_1"],
+            "to_key": pd.Series(["to_0", pd.NA], dtype="string"),
+            "to_name": pd.Series(["North Block", pd.NA], dtype="string"),
+            "to_canonical_name": pd.Series(["north block", pd.NA], dtype="string"),
+            "to_id": pd.Series(["t1", pd.NA], dtype="string"),
+        }
+    )
+
+    normalized = normalize_nullable_output_columns(crosswalk)
+
+    assert normalized["to_key"].dtype == object
+    assert normalized["to_name"].dtype == object
+    assert normalized["to_canonical_name"].dtype == object
+    assert normalized["to_id"].dtype == object
+    assert normalized.loc[1, "to_key"] is None
+    assert normalized.loc[1, "to_name"] is None
+    assert normalized.loc[1, "to_canonical_name"] is None
+    assert normalized.loc[1, "to_id"] is None
