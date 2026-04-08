@@ -1,20 +1,26 @@
 # AdminLineageAI
 
-AdminLineageAI builds administrative evolution keys between two periods.
+AdminLineageAI builds crosswalks and administrative evolution keys between two datasets.
 
-AdminLineageAI makes crosswalks between administrative locations such as districts (ADM2), subdistricts (ADM3), states (ADM1), and countries (ADM0) across two datasets that may come from completely different sources. It uses AI to compare likely matches, reason over spelling variants and language-specific forms, and produce a usable crosswalk plus review artifacts.
+AdminLineageAI makes crosswalks between administrative locations such as districts (ADM2), subdistricts (ADM3), states (ADM1), and countries (ADM0) across datasets that may come from completely different sources and different periods. It uses AI to compare likely matches, reason over spelling variants and language-specific forms, and produce a usable crosswalk plus review artifacts.
+
+Matching administrative units by hand is labour-intensive work. Names vary across sources, spellings shift across languages, and units are often renamed, split, or merged. Through this package, we hope to reduce the manual work of matching administrative units between datasets while still keeping a clear review trail.
 
 You give it one table from an earlier period, one table from a later period, the name columns you want to map, and any scope columns that must agree exactly. The package generates candidate matches, asks Gemini to choose among them, and writes a crosswalk plus review artifacts. The final evolution key includes a `merge` indicator so you can tell whether a row exists on both sides, only in the earlier-period table, or only in the later-period table.
 
-## Common Use Cases
+<p align="center"><sub><strong>Experimental:</strong> Treat these crosswalks as assistive outputs and cross-verify them, especially in important cases. We would love to hear about other field experiences and use cases for this package.</sub></p>
+
+## Where It Helps
 
 - Matching a scheme dataset from a website against a standard administrative list such as a census table. For example, one source may write `Paschimi Singhbhum` while another uses `West Singhbhum`. Plain fuzzy matching often misses cases like this unless you manually standardize prefixes and suffixes first. AI can do better because it has context, including that `paschim` in Hindi means `west`. The same kind of issue shows up across many widely spoken languages.
 - Handling administrative churn. Districts and other units are regularly split, merged, renamed, or grouped differently, and there is often no up-to-date public evolution list for newly created units.
 - Creating entirely new evolution crosswalks that do not already exist between two sources or two periods.
 
-## Warning
+## Three Important Features
 
-Treat these crosswalks as assistive outputs and cross-verify them, especially in important or high-stakes cases.
+- Exact string handling plus selective pruning. Token costs can rise quickly, so the package looks for exact string hits first and lets you control later AI work with `string_exact_match_prune`. This behaviour is explained in more detail below.
+- Hierarchical matching with `exact_match`. If your data are nested, you can match names within exact scopes such as `country`, `state`, or `district`. For example, you can match district names within states inside a country. This works well, but the exact-match columns need to line up exactly across both datasets.
+- Replay and reproducibility. Academic pipelines often need to be rerun many times. With replay enabled, repeated semantic requests can reuse prior completed LLM work instead of calling the API again. The `seed` parameter helps keep request identity deterministic and makes reruns easier to reproduce.
 
 The supported live workflow in AdminLineageAI is:
 
@@ -23,15 +29,23 @@ The supported live workflow in AdminLineageAI is:
 - strict JSON output from the model
 - user-controlled batching with automatic split fallback on failed multi-row requests
 
-## What You Need Before Running
+## How To Use
 
-You need three things:
+You do not need the CLI to use AdminLineageAI. The simplest path is the Python API.
 
-- a Gemini API key in `GEMINI_API_KEY`, or in another environment variable name that you pass explicitly
-- one earlier-period table and one later-period table
-- one name column on each side, plus optional exact-match columns, IDs, and extra context columns
+1. Install the package from the repository root.
 
-Example environment setup:
+```bash
+pip install -e .
+```
+
+Install the optional parquet dependency if you want parquet output support:
+
+```bash
+pip install -e ".[io]"
+```
+
+2. Set a Gemini API key in `GEMINI_API_KEY`, or use another environment variable name and pass it explicitly.
 
 ```bash
 GEMINI_API_KEY=your_api_key_here
@@ -39,7 +53,11 @@ GEMINI_API_KEY=your_api_key_here
 
 The package can load a nearby `.env` file when it looks for the key.
 
-## Quickstart In Python
+3. Prepare two tables: one earlier-period table and one later-period table.
+
+4. Choose the name column on each side, and add optional exact-match columns, IDs, or extra context columns if you have them.
+
+5. Run the matcher.
 
 ```python
 import pandas as pd
@@ -54,26 +72,42 @@ crosswalk_df, metadata = adminlineage.build_evolution_key(
     country="India",
     year_from=1951,
     year_to=2001,
-    map_col_from="subdistrict",
-    map_col_to="subdistrict",
-    exact_match=["state", "district"],
+    map_col_from="district",
+    map_col_to="district",
+    exact_match=["state"],
     id_col_from="unit_id",
     id_col_to="unit_id",
     relationship="auto",
+    string_exact_match_prune="from",
     evidence=False,
     reason=False,
     model="gemini-3.1-flash-lite-preview",
     gemini_api_key_env="GEMINI_API_KEY",
     replay_enabled=True,
+    seed=42,
 )
 
-print(crosswalk_df.head())
+print(crosswalk_df[["from_name", "to_name", "merge", "score"]].head())
 print(metadata["artifacts"])
 ```
 
-By default, outputs are written under `outputs/<country>_<year_from>_<year_to>_<map_col_from>`.
+6. Review the outputs. By default, AdminLineageAI writes artifacts under `outputs/<country>_<year_from>_<year_to>_<map_col_from>`. The main ones are `evolution_key.csv`, `review_queue.csv`, and `run_metadata.json`.
 
-## Quickstart In The CLI
+## Common Options
+
+- `exact_match`: Restricts matching to rows that agree exactly on one or more scope columns such as `country`, `state`, or `district`.
+- `string_exact_match_prune`: Controls how aggressively exact string hits are removed from later AI work. Use this to control token spend.
+- `relationship`: Declares the kind of relationship you expect, or leave it as `auto`.
+- `max_candidates`: Limits how many candidate rows are shown to the model for each source row.
+- `evidence`: Adds a short factual summary column.
+- `reason`: Adds a longer explanation column.
+- `replay_enabled`: Reuses prior completed LLM work when the semantic request matches.
+- `seed`: Keeps request identity deterministic for more reproducible reruns.
+- `output_dir`: Changes where run artifacts are written.
+
+## Optional CLI Workflow
+
+The CLI is useful when you want a saved YAML config for repeatable runs, but it is optional.
 
 ```bash
 adminlineage preview --config examples/config/example.yml
@@ -236,7 +270,7 @@ String constant for the current materialized output schema version.
 
 String constant for the package version.
 
-## CLI Reference
+## Optional CLI Reference
 
 Commands:
 
@@ -247,9 +281,9 @@ adminlineage validate --config path/to/config.yml
 adminlineage export --input path/to/evolution_key.csv --format {csv|parquet|jsonl} [--output path]
 ```
 
-`preview` and `validate` do not call Gemini. `run` writes the full artifact set. `export` converts an existing materialized crosswalk file.
+`preview` and `validate` do not call Gemini. `run` writes the full artifact set. `export` converts an existing materialized crosswalk file. If you are using the Python API directly, you can ignore this section.
 
-## YAML Config Reference
+## CLI YAML Config Reference
 
 Top-level sections:
 
@@ -345,7 +379,7 @@ For file mode, `data.from_path` and `data.to_path` are resolved relative to the 
 | `enabled` | `false` | Enables exact replay for fully completed runs. |
 | `store_dir` | `.adminlineage_replay` | Replay bundle directory. |
 
-Relative replay store paths are resolved from the config file location.
+Relative replay store paths are resolved from the config file location. This section only matters if you are using the CLI workflow.
 
 ### `output`
 
@@ -446,10 +480,12 @@ output:
 
 ## Operational Notes
 
-- `exact_match` scopes the candidate search. If you set `exact_match=["state", "district"]`, a row only compares against rows from the same `(state, district)` group.
+- `exact_match` scopes the candidate search. If you set `exact_match=["state", "district"]`, a row only compares against rows from the same `(state, district)` group. This is the main hierarchical matching mechanism in the package.
 - Candidate generation happens before Gemini. `max_candidates` controls how many shortlist entries the model sees for each source row.
+- Exact string handling happens before the model call. `string_exact_match_prune` controls whether already matched rows remain in later AI work.
 - Live Gemini work is grounded with Google Search and returns strict JSON. The pipeline then materializes CSV and Parquet outputs itself.
 - Replay is opt-in. When `replay_enabled=True`, rerunning the same semantic request reuses the prior completed LLM output instead of calling Gemini again.
+- `seed` helps keep request identity deterministic and makes runs easier to reproduce.
 - Cache is configured in CLI config. When enabled, the package uses a SQLite cache at `cache.path`.
 - Retry behavior is configurable in CLI config. Transient Gemini failures are retried according to the `retry` section before a row is marked unresolved.
 - `export_crosswalk` and `adminlineage export` convert an existing materialized crosswalk into `csv`, `parquet`, or `jsonl`.
