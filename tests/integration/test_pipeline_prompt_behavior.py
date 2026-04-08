@@ -271,7 +271,7 @@ def test_pipeline_keeps_batch_adjudication_structured_when_search_is_enabled(
         output_write_parquet=False,
     )
 
-    assert client.search_flags == [True, True, True]
+    assert client.search_flags == [True, True]
     assert client.text_search_flags == []
     assert client.prompts
     assert all(payload["include_evidence"] is False for payload in client.payloads)
@@ -286,7 +286,7 @@ def test_pipeline_keeps_batch_adjudication_structured_when_search_is_enabled(
     )
 
 
-def test_pipeline_runs_single_pass_grounding_for_each_ai_row(
+def test_pipeline_runs_single_pass_grounding_with_requested_batch_size(
     tmp_path: Path,
 ):
     df_from = pd.DataFrame(
@@ -326,9 +326,9 @@ def test_pipeline_runs_single_pass_grounding_for_each_ai_row(
         output_write_parquet=False,
     )
 
-    assert client.json_search_flags == [True, True]
+    assert client.json_search_flags == [True]
     assert client.text_search_flags == []
-    assert all(len(payload["items"]) == 1 for payload in client.json_payloads)
+    assert [len(payload["items"]) for payload in client.json_payloads] == [2]
     assert metadata["counts"]["grounding_attempted_rows"] == 2
     assert metadata["counts"]["grounded_rows"] == 2
     assert metadata["counts"]["grounding_failed_rows"] == 0
@@ -339,7 +339,7 @@ def test_pipeline_runs_single_pass_grounding_for_each_ai_row(
     assert beta_row["to_key"] == "to_1"
 
 
-def test_pipeline_uses_sequential_grounded_json_calls_for_gemini_runs(tmp_path: Path):
+def test_pipeline_uses_requested_batch_size_for_gemini_runs(tmp_path: Path):
     df_from = pd.DataFrame(
         {
             "district_name": [f"District {idx}" for idx in range(9)],
@@ -376,9 +376,10 @@ def test_pipeline_uses_sequential_grounded_json_calls_for_gemini_runs(tmp_path: 
     )
 
     assert client.payloads
-    assert all(len(payload["items"]) == 1 for payload in client.payloads)
-    assert any(
-        "Using effective batch_size=1 instead." in warning for warning in metadata["warnings"]
+    assert [len(payload["items"]) for payload in client.payloads] == [9]
+    assert not any(
+        "Using effective batch_size=1 instead." in warning
+        for warning in metadata["warnings"]
     )
 
 
@@ -524,8 +525,8 @@ def test_string_exact_match_prune_none_leaves_all_rows_for_ai(tmp_path: Path):
         output_write_parquet=False,
     )
 
-    assert len(client.payloads) == 2
-    assert [payload["items"][0]["from_name"] for payload in client.payloads] == [
+    assert len(client.payloads) == 1
+    assert [item["from_name"] for item in client.payloads[0]["items"]] == [
         "DELHI",
         "Delhi Rural",
     ]

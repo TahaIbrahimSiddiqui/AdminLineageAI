@@ -118,7 +118,7 @@ class OneRowFailsOnceClient(BaseLLMClient):
                 self.failed_counts[item["from_key"]] = (
                     self.failed_counts.get(item["from_key"], 0) + 1
                 )
-            if item["from_key"] == "from_0" and self.failed_counts[item["from_key"]] <= 1:
+            if item["from_key"] == "from_0" and self.failed_counts[item["from_key"]] <= 2:
                 raise TransientLLMError("temporary disconnect")
 
             candidate = item["candidates"][0]

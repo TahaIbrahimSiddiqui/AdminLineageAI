@@ -881,14 +881,7 @@ def run_pipeline(
             "run_id=%s stage=grounding mode=single_pass_structured_json enabled=true",
             run_id,
         )
-    effective_batch_size = 1
-    if batch_size != effective_batch_size:
-        warning = (
-            "Sequential adjudication is enabled to reduce Gemini request failures. "
-            f"Using effective batch_size={effective_batch_size} instead."
-        )
-        warnings.append(warning)
-        logger.warning("run_id=%s stage=adjudication %s", run_id, warning)
+    effective_batch_size = batch_size
     df_from_work, df_to_work = _prepare_workframes(
         df_from_effective,
         df_to_effective,
@@ -1041,6 +1034,37 @@ def run_pipeline(
         batch_label: str,
         match_stage: str = "ai",
     ) -> None:
+        def _split_failed_batch(exc: Exception) -> bool:
+            if len(batch_keys) <= 1:
+                return False
+
+            midpoint = max(1, len(batch_keys) // 2)
+            split_batches = [
+                batch_keys[:midpoint],
+                batch_keys[midpoint:],
+            ]
+            warning = (
+                f"Batch {batch_label} failed: {exc}. Retrying in smaller batches "
+                f"({len(split_batches[0])} + {len(split_batches[1])})."
+            )
+            warnings.append(warning)
+            logger.warning(
+                "run_id=%s stage=adjudication match_stage=%s batch=%s "
+                "failed=%s retrying_split=%s",
+                run_id,
+                match_stage,
+                batch_label,
+                exc,
+                [len(keys) for keys in split_batches],
+            )
+            for split_index, split_keys in enumerate(split_batches, start=1):
+                _run_adjudication_batch(
+                    split_keys,
+                    batch_label=f"{batch_label}.{split_index}",
+                    match_stage=match_stage,
+                )
+            return True
+
         batch_items = [_build_batch_item(from_key) for from_key in batch_keys]
         if len(batch_items) == 1 and not batch_items[0]["candidates"]:
             from_key = batch_items[0]["from_key"]
@@ -1183,6 +1207,8 @@ def run_pipeline(
             raise
         except LLMServiceError as exc:
             if isinstance(exc, TransientLLMError):
+                if _split_failed_batch(exc):
+                    return
                 logger.warning(
                     "run_id=%s stage=adjudication match_stage=%s batch=%s transient_error=%s",
                     run_id,
@@ -1227,6 +1253,8 @@ def run_pipeline(
                     )
                 raise
         except Exception as exc:
+            if _split_failed_batch(exc):
+                return
             logger.warning(
                 "run_id=%s stage=adjudication match_stage=%s batch=%s failed=%s",
                 run_id,

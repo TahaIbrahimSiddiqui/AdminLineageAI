@@ -61,7 +61,7 @@ class SplitOnLargeBatchClient(BaseLLMClient):
         return response
 
 
-def test_pipeline_runs_in_single_row_mode_without_batch_split_retries(
+def test_pipeline_splits_failed_batches_into_smaller_chunks(
     sample_df_from,
     sample_df_to,
     tmp_path: Path,
@@ -90,12 +90,12 @@ def test_pipeline_runs_in_single_row_mode_without_batch_split_retries(
         output_write_parquet=False,
     )
 
-    assert client.batch_sizes == [1, 1, 1]
+    assert client.batch_sizes == [2, 1, 1, 1]
     assert crosswalk.loc[crosswalk["merge"] == "both", "link_type"].eq("rename").all()
     assert "only_in_to" in set(crosswalk["merge"])
     assert not any("No completed adjudication record." in text for text in crosswalk["evidence"])
     assert any(
-        "Using effective batch_size=1 instead." in warning for warning in metadata["warnings"]
+        "Retrying in smaller batches" in warning for warning in metadata["warnings"]
     )
 
 
@@ -181,9 +181,10 @@ def test_pipeline_surfaces_unrecovered_row_failures_after_transient_retries(
         output_write_parquet=False,
     )
 
-    assert client.batch_sizes == [1, 1, 1]
+    assert client.batch_sizes == [2, 1, 1, 1]
     assert client.failed_from_keys == ["from_0"]
     assert metadata["counts"]["error_from_rows"] == 1
+    assert any("Retrying in smaller batches" in warning for warning in metadata["warnings"])
     assert any(
         "Adjudication still failed for 1 source rows after retries." in warning
         for warning in metadata["warnings"]
