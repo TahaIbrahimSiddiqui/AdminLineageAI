@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-OUTPUT_SCHEMA_VERSION = "2.2.0"
-PROMPT_SCHEMA_VERSION = "2.3.0"
+OUTPUT_SCHEMA_VERSION = "2.3.0"
+PROMPT_SCHEMA_VERSION = "2.5.0"
 
 LINK_TYPES = (
     "rename",
@@ -49,6 +49,7 @@ _CROSSWALK_COLUMNS_BEFORE_EXPLANATIONS = [
     "link_type",
     "relationship",
     "merge",
+    "lineage_hint",
 ]
 
 _CROSSWALK_COLUMNS_AFTER_EXPLANATIONS = [
@@ -87,6 +88,7 @@ def normalize_nullable_output_columns(crosswalk: pd.DataFrame) -> pd.DataFrame:
         "to_canonical_name",
         "from_id",
         "to_id",
+        "lineage_hint",
         "from_key",
         "to_key",
     ]:
@@ -108,6 +110,7 @@ def get_output_schema_definition(*, include_evidence: bool = False) -> dict:
         "link_type",
         "relationship",
         "merge",
+        "lineage_hint",
         "reason",
         "country",
         "year_from",
@@ -137,6 +140,10 @@ def get_output_schema_definition(*, include_evidence: bool = False) -> dict:
                 "both for matched source-target rows, only_in_from for unmatched "
                 "source rows, only_in_to for unmatched target rows appended after "
                 "the source pass"
+            ),
+            "lineage_hint": (
+                "Single best predecessor or successor name discovered during the "
+                "bounded second-stage rescue pass"
             ),
         },
     }

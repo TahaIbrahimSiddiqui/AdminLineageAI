@@ -70,7 +70,7 @@ class PipelineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     batch_size: int = 25
-    max_candidates: int = 15
+    max_candidates: int = 6
     review_score_threshold: float = 0.6
 
 

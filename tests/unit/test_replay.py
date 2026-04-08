@@ -140,4 +140,6 @@ def test_output_schema_definition_includes_merge_column_and_enum():
 
     assert "merge" in schema["crosswalk_columns"]
     assert "merge" in schema["required_output_columns"]
+    assert "lineage_hint" in schema["crosswalk_columns"]
+    assert "lineage_hint" in schema["required_output_columns"]
     assert schema["merge_enum"] == ["both", "only_in_from", "only_in_to"]

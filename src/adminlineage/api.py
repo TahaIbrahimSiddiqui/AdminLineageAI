@@ -31,7 +31,7 @@ def build_evolution_key(
     model: str = "gemini-3.1-flash-lite-preview",
     gemini_api_key_env: str = "GEMINI_API_KEY",
     batch_size: int = 25,
-    max_candidates: int = 15,
+    max_candidates: int = 6,
     output_dir: str | Path = "outputs",
     seed: int = 42,
     temperature: float = 0.75,
@@ -88,7 +88,7 @@ def preview_plan(
     id_col_to: str | None = None,
     extra_context_cols: list[str] | None = None,
     string_exact_match_prune: str = "none",
-    max_candidates: int = 15,
+    max_candidates: int = 6,
 ) -> dict:
     """Preview grouping and candidate-generation plan without LLM calls."""
 

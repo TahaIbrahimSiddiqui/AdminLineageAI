@@ -7,7 +7,13 @@ from typing import Any
 
 import pandas as pd
 
-from .candidates import generate_shortlist_from_records, prepare_target_records
+from .candidates import (
+    combined_similarity,
+    generate_shortlist_from_records,
+    ngram_cosine,
+    prepare_target_records,
+    token_jaccard,
+)
 from .io import append_jsonl, read_jsonl, write_json, write_jsonl
 from .llm import (
     BaseLLMClient,
@@ -22,10 +28,22 @@ from .models import (
     ExactStringPruneMode,
     MappingRequest,
     RequestRelationshipType,
+    SecondStageDecision,
+    SecondStageResearch,
     get_batch_response_model,
 )
-from .normalize import add_normalized_columns, normalized_key_frame
-from .prompts import build_batch_prompt
+from .normalize import (
+    add_normalized_columns,
+    canonicalize_name,
+    char_ngram_counter,
+    normalized_key_frame,
+    tokenize,
+)
+from .prompts import (
+    build_batch_prompt,
+    build_second_stage_decision_prompt,
+    build_second_stage_research_prompt,
+)
 from .replay import (
     build_replay_identity,
     load_replay_bundle,
@@ -51,11 +69,12 @@ def _default_run_name(country: str, year_from: int | str, year_to: int | str, ma
 
 
 def _archive_resume_file(
-    links_raw_path: Path,
+    records_path: Path,
     *,
     logger: Any,
     current_run_id: str,
     existing_records: list[dict[str, Any]],
+    record_label: str,
 ) -> Path:
     existing_run_ids = sorted(
         {
@@ -65,18 +84,19 @@ def _archive_resume_file(
         }
     )
     suffix = existing_run_ids[0] if len(existing_run_ids) == 1 else "mixed"
-    archive_path = links_raw_path.with_name(f"{links_raw_path.stem}.archive-{suffix}.jsonl")
+    archive_path = records_path.with_name(f"{records_path.stem}.archive-{suffix}.jsonl")
     counter = 1
     while archive_path.exists():
-        archive_path = links_raw_path.with_name(
-            f"{links_raw_path.stem}.archive-{suffix}-{counter}.jsonl"
+        archive_path = records_path.with_name(
+            f"{records_path.stem}.archive-{suffix}-{counter}.jsonl"
         )
         counter += 1
 
-    links_raw_path.replace(archive_path)
+    records_path.replace(archive_path)
     logger.info(
-        "run_id=%s stage=resume archived_stale_raw_links=%s",
+        "run_id=%s stage=resume archived_stale_%s=%s",
         current_run_id,
+        record_label,
         archive_path.name,
     )
     return archive_path
@@ -84,12 +104,13 @@ def _archive_resume_file(
 
 def _prepare_resume_records(
     *,
-    links_raw_path: Path,
+    records_path: Path,
     run_id: str,
     logger: Any,
     warnings: list[str],
+    record_label: str,
 ) -> list[dict[str, Any]]:
-    existing_records = read_jsonl(links_raw_path)
+    existing_records = read_jsonl(records_path)
     if not existing_records:
         return []
 
@@ -102,13 +123,15 @@ def _prepare_resume_records(
     # Raw link files are tied to the original request shape.
     # Mixing them across runs gets messy fast.
     archive_path = _archive_resume_file(
-        links_raw_path,
+        records_path,
         logger=logger,
         current_run_id=run_id,
         existing_records=existing_records,
+        record_label=record_label,
     )
     warnings.append(
-        "Existing raw link records did not match the current request and were archived to "
+        f"Existing {record_label.replace('_', ' ')} did not match the current request and "
+        "were archived to "
         f"{archive_path.name}."
     )
     return []
@@ -420,6 +443,7 @@ def _artifact_paths(run_dir: Path) -> dict[str, Path]:
     return {
         "links_raw": run_dir / "links_raw.jsonl",
         "grounding_notes": run_dir / "grounding_notes.jsonl",
+        "second_stage_results": run_dir / "second_stage_results.jsonl",
         "crosswalk_csv": run_dir / "evolution_key.csv",
         "crosswalk_parquet": run_dir / "evolution_key.parquet",
         "review_queue_csv": run_dir / "review_queue.csv",
@@ -460,6 +484,47 @@ def _grounding_target_from_keys(
     return sorted(target_keys)
 
 
+def _second_stage_primary_side(prune_mode: ExactStringPruneMode) -> str | None:
+    if prune_mode in {"from", "to"}:
+        return prune_mode
+    return None
+
+
+def _unique_search_terms(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    terms: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        canonical = canonicalize_name(text)
+        if not canonical or canonical in seen:
+            continue
+        seen.add(canonical)
+        terms.append(text)
+    return terms
+
+
+def _collect_latest_second_stage_records(
+    records: list[dict[str, Any]],
+) -> tuple[dict[tuple[str, str], dict[str, Any]], dict[tuple[str, str], dict[str, Any]]]:
+    latest_success: dict[tuple[str, str], dict[str, Any]] = {}
+    latest_error: dict[tuple[str, str], dict[str, Any]] = {}
+    for record in records:
+        primary_side = str(record.get("primary_side", "")).strip()
+        primary_key = str(record.get("primary_key", "")).strip()
+        if not primary_side or not primary_key:
+            continue
+        key = (primary_side, primary_key)
+        if record.get("status") == "ok":
+            latest_success[key] = record
+            latest_error.pop(key, None)
+        elif record.get("status") == "error":
+            latest_success.pop(key, None)
+            latest_error[key] = record
+    return latest_success, latest_error
+
+
 def _build_run_metadata(
     *,
     run_id: str,
@@ -474,6 +539,9 @@ def _build_run_metadata(
     grounding_attempted_rows: int,
     grounded_rows: int,
     grounding_failed_rows: int,
+    second_stage_attempted_rows: int,
+    second_stage_rewritten_rows: int,
+    second_stage_failed_rows: int,
     replay_key: str | None,
     replay_hit: bool,
     replayed_from_run_id: str | None,
@@ -489,6 +557,9 @@ def _build_run_metadata(
         "grounding_attempted_rows": grounding_attempted_rows,
         "grounded_rows": grounded_rows,
         "grounding_failed_rows": grounding_failed_rows,
+        "second_stage_attempted_rows": second_stage_attempted_rows,
+        "second_stage_rewritten_rows": second_stage_rewritten_rows,
+        "second_stage_failed_rows": second_stage_failed_rows,
     }
     return {
         "run_id": run_id,
@@ -529,6 +600,8 @@ def _finalize_output_artifacts(
     }
     if paths["grounding_notes"].exists():
         artifacts["grounding_notes_jsonl"] = str(paths["grounding_notes"])
+    if paths["second_stage_results"].exists():
+        artifacts["second_stage_results_jsonl"] = str(paths["second_stage_results"])
     if output_write_csv:
         artifacts["evolution_key_csv"] = str(paths["crosswalk_csv"])
 
@@ -568,7 +641,7 @@ def preview_pipeline_plan(
     id_col_to: str | None = None,
     extra_context_cols: list[str] | None = None,
     string_exact_match_prune: ExactStringPruneMode = "none",
-    max_candidates: int = 15,
+    max_candidates: int = 6,
 ) -> dict[str, Any]:
     """Preview group sizes and candidate budgets without calling LLM."""
 
@@ -681,7 +754,7 @@ def run_pipeline(
     model: str = "gemini-3.1-flash-lite-preview",
     gemini_api_key_env: str = "GEMINI_API_KEY",
     batch_size: int = 25,
-    max_candidates: int = 15,
+    max_candidates: int = 6,
     output_dir: str | Path = "outputs",
     seed: int = 42,
     llm_client: BaseLLMClient | None = None,
@@ -804,10 +877,18 @@ def run_pipeline(
             review_queue = replay_bundle["review_queue"]
             write_jsonl(paths["links_raw"], read_jsonl(replay_bundle["links_raw_path"]))
             grounding_notes_path = replay_bundle.get("grounding_notes_path")
+            second_stage_results_path = replay_bundle.get("second_stage_results_path")
             if grounding_notes_path is not None:
                 write_jsonl(paths["grounding_notes"], read_jsonl(grounding_notes_path))
             elif paths["grounding_notes"].exists():
                 paths["grounding_notes"].unlink()
+            if second_stage_results_path is not None:
+                write_jsonl(
+                    paths["second_stage_results"],
+                    read_jsonl(second_stage_results_path),
+                )
+            elif paths["second_stage_results"].exists():
+                paths["second_stage_results"].unlink()
             metadata = _build_run_metadata(
                 run_id=run_id,
                 request=request,
@@ -832,6 +913,21 @@ def run_pipeline(
                     replay_bundle["manifest"]
                     .get("counts", {})
                     .get("grounding_failed_rows", 0)
+                ),
+                second_stage_attempted_rows=int(
+                    replay_bundle["manifest"]
+                    .get("counts", {})
+                    .get("second_stage_attempted_rows", 0)
+                ),
+                second_stage_rewritten_rows=int(
+                    replay_bundle["manifest"]
+                    .get("counts", {})
+                    .get("second_stage_rewritten_rows", 0)
+                ),
+                second_stage_failed_rows=int(
+                    replay_bundle["manifest"]
+                    .get("counts", {})
+                    .get("second_stage_failed_rows", 0)
                 ),
                 replay_key=replay_key,
                 replay_hit=True,
@@ -921,11 +1017,13 @@ def run_pipeline(
     )
 
     links_raw_path = paths["links_raw"]
+    second_stage_results_path = paths["second_stage_results"]
     existing_records = _prepare_resume_records(
-        links_raw_path=links_raw_path,
+        records_path=links_raw_path,
         run_id=run_id,
         logger=logger,
         warnings=warnings,
+        record_label="raw_link_records",
     )
     completed_from_keys = {
         record["from_key"]
@@ -965,6 +1063,216 @@ def run_pipeline(
         include_reason=reason,
         include_evidence=evidence,
     )
+
+    def _build_global_secondary_records(*, side: str) -> list[dict[str, Any]]:
+        frame = df_to_work if side == "to" else df_from_work
+        key_col = "_to_key" if side == "to" else "_from_key"
+        id_col = "_to_id" if side == "to" else "_from_id"
+        raw_name_col = "_to_name_raw" if side == "to" else "_from_name_raw"
+        canonical_name_col = (
+            "_to_canonical_name" if side == "to" else "_from_canonical_name"
+        )
+        tokens_col = "_to_tokens" if side == "to" else "_from_tokens"
+        ngrams_col = "_to_char_ngrams" if side == "to" else "_from_char_ngrams"
+
+        records: list[dict[str, Any]] = []
+        for row_dict in frame.to_dict(orient="records"):
+            records.append(
+                {
+                    "secondary_key": row_dict[key_col],
+                    "secondary_id": row_dict[id_col],
+                    "secondary_name": row_dict[raw_name_col],
+                    "secondary_canonical_name": row_dict[canonical_name_col],
+                    "secondary_tokens": row_dict[tokens_col],
+                    "secondary_char_ngrams": row_dict[ngrams_col],
+                    "exact_match_context": {col: row_dict[col] for col in exact_match},
+                    "extra_context": {col: row_dict[col] for col in extra_context_cols},
+                }
+            )
+        return records
+
+    secondary_records_by_side = {
+        "from": _build_global_secondary_records(side="from"),
+        "to": _build_global_secondary_records(side="to"),
+    }
+
+    def _rank_global_secondary_candidates(
+        *,
+        primary_side: str,
+        search_terms: list[str],
+    ) -> list[dict[str, Any]]:
+        # The rescue pass deliberately searches the full opposite table instead of the
+        # first-pass scoped shortlist so it can recover renames and lineage changes.
+        secondary_side = "to" if primary_side == "from" else "from"
+        secondary_records = secondary_records_by_side[secondary_side]
+        unique_terms = _unique_search_terms(search_terms)
+        if not secondary_records or not unique_terms:
+            return []
+
+        encoded_terms = [
+            (
+                term,
+                tokenize(canonicalize_name(term)),
+                char_ngram_counter(canonicalize_name(term)),
+            )
+            for term in unique_terms
+        ]
+
+        ranked: list[dict[str, Any]] = []
+        for record in secondary_records:
+            best_score = 0.0
+            best_term = ""
+            for term, term_tokens, term_ngrams in encoded_terms:
+                score = combined_similarity(
+                    token_jaccard(term_tokens, record["secondary_tokens"]),
+                    ngram_cosine(term_ngrams, record["secondary_char_ngrams"]),
+                )
+                if score > best_score:
+                    best_score = score
+                    best_term = term
+            ranked.append(
+                {
+                    "secondary_key": record["secondary_key"],
+                    "secondary_name": record["secondary_name"],
+                    "secondary_canonical_name": record["secondary_canonical_name"],
+                    "secondary_id": record["secondary_id"],
+                    "score": float(round(best_score, 6)),
+                    "matched_term": best_term,
+                    "exact_match_context": record["exact_match_context"],
+                    "extra_context": record["extra_context"],
+                }
+            )
+
+        ranked.sort(
+            key=lambda item: (
+                -float(item["score"]),
+                str(item["secondary_canonical_name"]),
+                str(item["secondary_key"]),
+            )
+        )
+        return ranked[:max_candidates]
+
+    def _build_primary_item_from_row(
+        row: pd.Series,
+        *,
+        primary_side: str,
+    ) -> dict[str, Any]:
+        if primary_side == "from":
+            return {
+                "primary_key": row["from_key"],
+                "primary_id": row["from_id"],
+                "primary_name": row["from_name"],
+                "primary_canonical_name": row["from_canonical_name"],
+                "merge": row["merge"],
+                "exact_match_context": {col: row[col] for col in exact_match},
+            }
+        return {
+            "primary_key": row["to_key"],
+            "primary_id": row["to_id"],
+            "primary_name": row["to_name"],
+            "primary_canonical_name": row["to_canonical_name"],
+            "merge": row["merge"],
+            "exact_match_context": {col: row[col] for col in exact_match},
+        }
+
+    def _second_stage_candidate_payloads(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        payloads: list[dict[str, Any]] = []
+        for candidate in candidates:
+            payload = {
+                "secondary_key": candidate["secondary_key"],
+                "secondary_name": candidate["secondary_name"],
+                "secondary_canonical_name": candidate["secondary_canonical_name"],
+                "score": candidate["score"],
+                "exact_match_context": candidate["exact_match_context"],
+            }
+            if extra_context_cols:
+                payload["extra_context"] = candidate["extra_context"]
+            payloads.append(payload)
+        return payloads
+
+    def _second_stage_link_is_matched(link_type: str, selected_secondary_keys: list[str]) -> bool:
+        return bool(selected_secondary_keys) and link_type in _MATCHED_LINK_TYPES
+
+    def _build_second_stage_link_row(
+        *,
+        from_key: str,
+        to_key: str,
+        link_type: str,
+        relationship_value: str,
+        score: float,
+        lineage_hint: str,
+        evidence_text: str,
+        reason_text: str,
+    ) -> dict[str, Any]:
+        from_row = from_lookup.loc[from_key]
+        to_row = to_lookup.loc[to_key]
+        exact_match_passed = True
+        if exact_match:
+            exact_match_passed = all(
+                from_row[_normalized_scope_col("from", col)]
+                == to_row[_normalized_scope_col("to", col)]
+                for col in exact_match
+            )
+
+        row = {
+            "from_name": from_row["_from_name_raw"],
+            "to_name": to_row["_to_name_raw"],
+            "from_canonical_name": from_row["_from_canonical_name"],
+            "to_canonical_name": to_row["_to_canonical_name"],
+            "from_id": from_row["_from_id"],
+            "to_id": to_row["_to_id"],
+            "score": float(score),
+            "link_type": link_type,
+            "relationship": _final_relationship(
+                relationship_value,
+                requested_relationship=relationship,
+                link_type=link_type,
+                to_key=to_key,
+            ),
+            "merge": _merge_indicator(link_type=link_type, to_key=to_key),
+            "lineage_hint": lineage_hint,
+            "country": country,
+            "year_from": year_from,
+            "year_to": year_to,
+            "run_id": run_id,
+            "from_key": from_key,
+            "to_key": to_key,
+            "constraints_passed": {
+                "candidate_membership": True,
+                "exact_match": exact_match_passed,
+                "second_stage": True,
+                "global_secondary_search": True,
+            },
+        }
+        if evidence:
+            row["evidence"] = evidence_text[:400]
+        row["reason"] = reason_text[:800] if reason else ""
+        row.update({col: from_row[col] for col in exact_match})
+        return row
+
+    def _finalize_crosswalk_table(crosswalk: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+        crosswalk = crosswalk.copy()
+        crosswalk_base_columns = get_crosswalk_base_columns(include_evidence=evidence)
+        for col in crosswalk_base_columns:
+            if col not in crosswalk.columns:
+                if col in {"reason", "lineage_hint"}:
+                    crosswalk[col] = ""
+                else:
+                    crosswalk[col] = None
+
+        crosswalk = apply_global_flags(crosswalk, low_score_threshold=review_score_threshold)
+        crosswalk = normalize_nullable_output_columns(crosswalk)
+        exact_match_order = exact_match.copy()
+        preferred_order = crosswalk_base_columns + exact_match_order + [
+            "review_flags",
+            "review_reason",
+        ]
+        ordered_cols = [col for col in preferred_order if col in crosswalk.columns] + [
+            col for col in crosswalk.columns if col not in preferred_order
+        ]
+        crosswalk = crosswalk[ordered_cols]
+        review_queue = build_review_queue(crosswalk)
+        return crosswalk, review_queue
 
     def _candidate_payloads_for_key(
         from_key: str,
@@ -1438,24 +1746,358 @@ def run_pipeline(
         latest_error: dict[str, dict[str, Any]],
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         crosswalk = pd.DataFrame(_materialize_rows(latest_success, latest_error))
-        crosswalk_base_columns = get_crosswalk_base_columns(include_evidence=evidence)
-        for col in crosswalk_base_columns:
-            if col not in crosswalk.columns:
-                crosswalk[col] = "" if col == "reason" else None
+        return _finalize_crosswalk_table(crosswalk)
 
-        crosswalk = apply_global_flags(crosswalk, low_score_threshold=review_score_threshold)
-        crosswalk = normalize_nullable_output_columns(crosswalk)
-        exact_match_order = exact_match.copy()
-        preferred_order = crosswalk_base_columns + exact_match_order + [
-            "review_flags",
-            "review_reason",
+    def _apply_second_stage_record(
+        crosswalk: pd.DataFrame,
+        *,
+        record: dict[str, Any],
+    ) -> pd.DataFrame:
+        updated = crosswalk.copy()
+        primary_side = str(record.get("primary_side", "")).strip()
+        primary_key = str(record.get("primary_key", "")).strip()
+        if primary_side not in {"from", "to"} or not primary_key:
+            return updated
+
+        research_payload = record.get("lineage_research") or {}
+        decision_payload = record.get("decision") or {}
+        lineage_hint = str(
+            research_payload.get("lineage_hint") or record.get("lineage_hint") or ""
+        ).strip()
+        selected_secondary_keys = [
+            str(value).strip()
+            for value in decision_payload.get("selected_secondary_keys", [])
+            if str(value).strip()
         ]
-        ordered_cols = [col for col in preferred_order if col in crosswalk.columns] + [
-            col for col in crosswalk.columns if col not in preferred_order
+        selected_secondary_keys = list(dict.fromkeys(selected_secondary_keys))
+        link_type = str(decision_payload.get("link_type", "unknown") or "unknown")
+        relationship_value = str(
+            decision_payload.get("relationship", "unknown") or "unknown"
+        )
+        score = float(decision_payload.get("score", 0.0) or 0.0)
+        evidence_text = str(decision_payload.get("evidence", "") or "").strip()
+        reason_text = str(decision_payload.get("reason", "") or "").strip()
+
+        if lineage_hint:
+            if primary_side == "from":
+                lineage_mask = (
+                    updated["from_key"].eq(primary_key) & updated["merge"].eq("only_in_from")
+                )
+            else:
+                lineage_mask = (
+                    updated["to_key"].eq(primary_key) & updated["merge"].eq("only_in_to")
+                )
+            if lineage_mask.any():
+                updated.loc[lineage_mask, "lineage_hint"] = lineage_hint
+
+        if record.get("status") != "ok" or not _second_stage_link_is_matched(
+            link_type,
+            selected_secondary_keys,
+        ):
+            return updated
+
+        if primary_side == "from":
+            valid_selected_keys = [
+                to_key for to_key in selected_secondary_keys if to_key in to_lookup.index
+            ]
+            if not valid_selected_keys:
+                return updated
+
+            updated = updated.loc[
+                ~(
+                    updated["from_key"].eq(primary_key)
+                    & updated["merge"].eq("only_in_from")
+                )
+            ].copy()
+            for to_key in valid_selected_keys:
+                updated = updated.loc[
+                    ~(
+                        (updated["to_key"].eq(to_key) & updated["merge"].eq("only_in_to"))
+                        | (
+                            updated["from_key"].eq(primary_key)
+                            & updated["to_key"].eq(to_key)
+                        )
+                    )
+                ].copy()
+                new_row = _build_second_stage_link_row(
+                    from_key=primary_key,
+                    to_key=to_key,
+                    link_type=link_type,
+                    relationship_value=relationship_value,
+                    score=score,
+                    lineage_hint=lineage_hint,
+                    evidence_text=evidence_text or str(research_payload.get("notes", "") or ""),
+                    reason_text=reason_text,
+                )
+                updated = pd.concat([updated, pd.DataFrame([new_row])], ignore_index=True)
+            return updated
+
+        valid_selected_keys = [
+            from_key for from_key in selected_secondary_keys if from_key in from_lookup.index
         ]
-        crosswalk = crosswalk[ordered_cols]
-        review_queue = build_review_queue(crosswalk)
-        return crosswalk, review_queue
+        if not valid_selected_keys:
+            return updated
+
+        updated = updated.loc[
+            ~(updated["to_key"].eq(primary_key) & updated["merge"].eq("only_in_to"))
+        ].copy()
+        for from_key in valid_selected_keys:
+            updated = updated.loc[
+                ~(
+                    (updated["from_key"].eq(from_key) & updated["merge"].eq("only_in_from"))
+                    | (updated["from_key"].eq(from_key) & updated["to_key"].eq(primary_key))
+                )
+            ].copy()
+            new_row = _build_second_stage_link_row(
+                from_key=from_key,
+                to_key=primary_key,
+                link_type=link_type,
+                relationship_value=relationship_value,
+                score=score,
+                lineage_hint=lineage_hint,
+                evidence_text=evidence_text or str(research_payload.get("notes", "") or ""),
+                reason_text=reason_text,
+            )
+            updated = pd.concat([updated, pd.DataFrame([new_row])], ignore_index=True)
+        return updated
+
+    def _run_second_stage(crosswalk: pd.DataFrame) -> pd.DataFrame:
+        primary_side = _second_stage_primary_side(string_exact_match_prune)
+        if primary_side is None:
+            if second_stage_results_path.exists():
+                second_stage_results_path.unlink()
+            return crosswalk
+
+        if not grounding_enabled:
+            warning = (
+                "Second-stage rescue is disabled because enable_google_search is false."
+            )
+            warnings.append(warning)
+            logger.warning("run_id=%s stage=second_stage disabled=%s", run_id, warning)
+            if second_stage_results_path.exists():
+                second_stage_results_path.unlink()
+            return crosswalk
+
+        existing_second_stage_records = _prepare_resume_records(
+            records_path=second_stage_results_path,
+            run_id=run_id,
+            logger=logger,
+            warnings=warnings,
+            record_label="second_stage_results",
+        )
+        latest_second_stage_success, _latest_second_stage_error = (
+            _collect_latest_second_stage_records(existing_second_stage_records)
+        )
+
+        updated = crosswalk.copy()
+        for record in latest_second_stage_success.values():
+            updated = _apply_second_stage_record(updated, record=record)
+
+        merge_value = "only_in_from" if primary_side == "from" else "only_in_to"
+        key_col = "from_key" if primary_side == "from" else "to_key"
+        pending_rows = (
+            updated.loc[(updated["merge"] == merge_value) & updated[key_col].notna()]
+            .drop_duplicates(subset=[key_col], keep="first")
+            .copy()
+        )
+        pending_rows = pending_rows.loc[
+            ~pending_rows[key_col].astype(str).map(
+                lambda value: (primary_side, value) in latest_second_stage_success
+            )
+        ]
+
+        for _, row in pending_rows.iterrows():
+            primary_key = str(row[key_col])
+            primary_item = _build_primary_item_from_row(row, primary_side=primary_side)
+            lineage_research_payload: dict[str, Any] = {}
+            refreshed_candidates: list[dict[str, Any]] = []
+            try:
+                logger.info(
+                    "run_id=%s stage=second_stage step=start primary_side=%s primary_key=%s",
+                    run_id,
+                    primary_side,
+                    primary_key,
+                )
+                research_prompt = build_second_stage_research_prompt(
+                    country=country,
+                    year_from=year_from,
+                    year_to=year_to,
+                    primary_side=primary_side,
+                    primary_item=primary_item,
+                )
+                raw_research = llm_client.generate_json(
+                    prompt=research_prompt,
+                    schema=SecondStageResearch,
+                    model=model,
+                    temperature=temperature,
+                    seed=seed,
+                    enable_google_search=True,
+                )
+                research = SecondStageResearch.model_validate(raw_research)
+                lineage_research_payload = research.model_dump()
+                logger.info(
+                    "run_id=%s stage=second_stage step=research_ok primary_side=%s "
+                    "primary_key=%s event_type=%s lineage_hint=%s",
+                    run_id,
+                    primary_side,
+                    primary_key,
+                    research.event_type,
+                    research.lineage_hint or "",
+                )
+
+                if research.event_type == "unknown" and not (research.lineage_hint or "").strip():
+                    # An inconclusive research result is still a completed second-stage row.
+                    # Record it and move on instead of paying for a second adjudication call.
+                    decision_payload = {
+                        "primary_key": primary_key,
+                        "selected_secondary_keys": [],
+                        "link_type": "no_match",
+                        "relationship": "unknown",
+                        "score": 0.0,
+                    }
+                    if evidence:
+                        decision_payload["evidence"] = ""
+                    if reason:
+                        decision_payload["reason"] = ""
+                    record = {
+                        "run_id": run_id,
+                        "timestamp": now_iso(),
+                        "primary_side": primary_side,
+                        "primary_key": primary_key,
+                        "status": "ok",
+                        "lineage_research": lineage_research_payload,
+                        "lineage_hint": "",
+                        "candidate_secondary_keys": [],
+                        "decision": decision_payload,
+                        "rewrite_applied": False,
+                    }
+                    append_jsonl(second_stage_results_path, record)
+                    updated = _apply_second_stage_record(updated, record=record)
+                    logger.info(
+                        "run_id=%s stage=second_stage step=match_ok primary_side=%s "
+                        "primary_key=%s selected=0 rewrite=false skipped_decision=true",
+                        run_id,
+                        primary_side,
+                        primary_key,
+                    )
+                    continue
+
+                refreshed_candidates = _rank_global_secondary_candidates(
+                    primary_side=primary_side,
+                    search_terms=[
+                        primary_item["primary_name"],
+                        lineage_research_payload.get("lineage_hint", ""),
+                    ],
+                )
+                logger.info(
+                    "run_id=%s stage=second_stage step=shortlist primary_side=%s "
+                    "primary_key=%s candidates=%d",
+                    run_id,
+                    primary_side,
+                    primary_key,
+                    len(refreshed_candidates),
+                )
+
+                if refreshed_candidates:
+                    decision_prompt = build_second_stage_decision_prompt(
+                        country=country,
+                        year_from=year_from,
+                        year_to=year_to,
+                        primary_side=primary_side,
+                        relationship=relationship,
+                        include_evidence=evidence,
+                        include_reason=reason,
+                        primary_item=primary_item,
+                        lineage_research=lineage_research_payload,
+                        candidate_subset=_second_stage_candidate_payloads(
+                            refreshed_candidates
+                        ),
+                    )
+                    raw_decision = llm_client.generate_json(
+                        prompt=decision_prompt,
+                        schema=SecondStageDecision,
+                        model=model,
+                        temperature=temperature,
+                        seed=seed,
+                        enable_google_search=False,
+                    )
+                    decision = SecondStageDecision.model_validate(raw_decision)
+                else:
+                    decision = SecondStageDecision(
+                        primary_key=primary_key,
+                        selected_secondary_keys=[],
+                        link_type="no_match",
+                        relationship="unknown",
+                        score=0.0,
+                    )
+
+                shortlisted_keys = {
+                    candidate["secondary_key"] for candidate in refreshed_candidates
+                }
+                filtered_secondary_keys = [
+                    secondary_key
+                    for secondary_key in decision.selected_secondary_keys
+                    if secondary_key in shortlisted_keys
+                ]
+                decision_payload = decision.model_dump()
+                decision_payload["selected_secondary_keys"] = list(
+                    dict.fromkeys(filtered_secondary_keys)
+                )
+                record = {
+                    "run_id": run_id,
+                    "timestamp": now_iso(),
+                    "primary_side": primary_side,
+                    "primary_key": primary_key,
+                    "status": "ok",
+                    "lineage_research": lineage_research_payload,
+                    "lineage_hint": lineage_research_payload.get("lineage_hint", ""),
+                    "candidate_secondary_keys": sorted(shortlisted_keys),
+                    "decision": decision_payload,
+                    "rewrite_applied": _second_stage_link_is_matched(
+                        str(decision_payload.get("link_type", "unknown")),
+                        decision_payload["selected_secondary_keys"],
+                    ),
+                }
+                append_jsonl(second_stage_results_path, record)
+                updated = _apply_second_stage_record(updated, record=record)
+                logger.info(
+                    "run_id=%s stage=second_stage step=match_ok primary_side=%s "
+                    "primary_key=%s selected=%d rewrite=%s",
+                    run_id,
+                    primary_side,
+                    primary_key,
+                    len(decision_payload["selected_secondary_keys"]),
+                    record["rewrite_applied"],
+                )
+            except Exception as exc:
+                append_jsonl(
+                    second_stage_results_path,
+                    {
+                        "run_id": run_id,
+                        "timestamp": now_iso(),
+                        "primary_side": primary_side,
+                        "primary_key": primary_key,
+                        "status": "error",
+                        "lineage_research": lineage_research_payload,
+                        "candidate_secondary_keys": [
+                            candidate["secondary_key"] for candidate in refreshed_candidates
+                        ],
+                        "error": str(exc),
+                    },
+                )
+                logger.warning(
+                    "run_id=%s stage=second_stage step=error primary_side=%s "
+                    "primary_key=%s error=%s",
+                    run_id,
+                    primary_side,
+                    primary_key,
+                    exc,
+                )
+                warnings.append(
+                    f"Second-stage rescue failed for {primary_side}_key={primary_key}: {exc}"
+                )
+
+        return updated
 
     batch_index = 0
     for batch_keys in chunked(pending_from_keys, effective_batch_size):
@@ -1499,7 +2141,33 @@ def run_pipeline(
             grounding_warning += "for review."
         warnings.append(grounding_warning)
 
-    crosswalk, review_queue = _build_crosswalk_and_review_queue(latest_success, latest_error)
+    crosswalk = pd.DataFrame(_materialize_rows(latest_success, latest_error))
+    crosswalk = _run_second_stage(crosswalk)
+    crosswalk, review_queue = _finalize_crosswalk_table(crosswalk)
+
+    second_stage_attempted_rows = 0
+    second_stage_rewritten_rows = 0
+    second_stage_failed_rows = 0
+    if second_stage_results_path.exists():
+        second_stage_records = read_jsonl(second_stage_results_path)
+        latest_second_stage_success, latest_second_stage_error = (
+            _collect_latest_second_stage_records(second_stage_records)
+        )
+        second_stage_attempted_rows = len(latest_second_stage_success) + len(
+            latest_second_stage_error
+        )
+        second_stage_rewritten_rows = sum(
+            1
+            for record in latest_second_stage_success.values()
+            if bool(record.get("rewrite_applied"))
+        )
+        second_stage_failed_rows = len(latest_second_stage_error)
+        if second_stage_failed_rows:
+            warnings.append(
+                "Second-stage rescue did not complete cleanly for "
+                f"{second_stage_failed_rows} primary rows; unresolved rows were kept "
+                "for review or rerun."
+            )
     if replay_dir is not None and error_from_keys:
         warnings.append(
             "Replay bundle was not updated because the run still has unresolved adjudication "
@@ -1519,6 +2187,9 @@ def run_pipeline(
         grounding_attempted_rows=grounding_attempted_rows,
         grounded_rows=grounded_rows,
         grounding_failed_rows=grounding_failed_rows,
+        second_stage_attempted_rows=second_stage_attempted_rows,
+        second_stage_rewritten_rows=second_stage_rewritten_rows,
+        second_stage_failed_rows=second_stage_failed_rows,
         replay_key=replay_key,
         replay_hit=False,
         replayed_from_run_id=None,
@@ -1550,6 +2221,7 @@ def run_pipeline(
                 review_queue=review_queue,
                 links_raw_path=links_raw_path,
                 grounding_notes_path=paths["grounding_notes"],
+                second_stage_results_path=paths["second_stage_results"],
             )
         except Exception as exc:
             warning = f"Replay bundle publish failed ({exc}); current run outputs are still valid."

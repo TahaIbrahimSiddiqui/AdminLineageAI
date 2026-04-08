@@ -139,6 +139,103 @@ def build_grounding_verification_prompt(
     )
 
 
+def build_second_stage_research_prompt(
+    *,
+    country: str,
+    year_from: int | str,
+    year_to: int | str,
+    primary_side: str,
+    primary_item: dict[str, Any],
+) -> str:
+    """Create strict JSON prompt for bounded second-stage lineage research."""
+
+    payload = {
+        "schema_version": PROMPT_SCHEMA_VERSION,
+        "country": country,
+        "year_from": year_from,
+        "year_to": year_to,
+        "primary_side": primary_side,
+        "primary_item": primary_item,
+    }
+
+    return (
+        "You are researching one unmatched administrative unit between two dates.\n"
+        "Use Google Search to determine whether the unit was renamed, split, merged, "
+        "transferred, dissolved, or remains unclear between year_from and year_to.\n"
+        "Return strict JSON only.\n"
+        "Rules:\n"
+        "1) Focus on one best predecessor or successor name to try next.\n"
+        "2) If evidence is weak, use event_type=unknown and lineage_hint=\"\".\n"
+        "3) Keep notes short and factual.\n\n"
+        "Required response JSON:\n"
+        '{"event_type":"rename|split|merge|transfer|dissolved|unknown",'
+        '"lineage_hint":"...",'
+        '"notes":"..."}\n\n'
+        "INPUT_PAYLOAD_JSON:\n"
+        f"{json.dumps(payload, ensure_ascii=True)}"
+    )
+
+
+def build_second_stage_decision_prompt(
+    *,
+    country: str,
+    year_from: int | str,
+    year_to: int | str,
+    primary_side: str,
+    relationship: str,
+    include_evidence: bool,
+    include_reason: bool,
+    primary_item: dict[str, Any],
+    lineage_research: dict[str, Any],
+    candidate_subset: list[dict[str, Any]],
+) -> str:
+    """Create strict JSON prompt for second-stage shortlist adjudication."""
+
+    payload = {
+        "schema_version": PROMPT_SCHEMA_VERSION,
+        "country": country,
+        "year_from": year_from,
+        "year_to": year_to,
+        "primary_side": primary_side,
+        "requested_relationship": relationship,
+        "include_evidence": include_evidence,
+        "include_reason": include_reason,
+        "primary_item": primary_item,
+        "lineage_research": lineage_research,
+        "candidate_subset": candidate_subset,
+    }
+
+    evidence_rule = (
+        ',"evidence":"..."' if include_evidence else ""
+    )
+    reason_rule = (
+        ',"reason":"..."' if include_reason else ""
+    )
+
+    return (
+        "You are adjudicating one unmatched administrative unit "
+        "using a refreshed global shortlist.\n"
+        "Use only the supplied lineage research and refreshed shortlist candidates.\n"
+        "Rules:\n"
+        "1) Candidate selection is limited to the supplied `candidate_subset`.\n"
+        "2) `selected_secondary_keys` must be drawn only from the shortlist or be an empty list.\n"
+        "3) Many-to-many is allowed when the shortlist supports it.\n"
+        "4) If evidence is weak, return an empty list with link_type=no_match or unknown.\n"
+        "5) Return strict JSON only.\n\n"
+        "Required response JSON:\n"
+        '{"primary_key":"...",'
+        '"selected_secondary_keys":["candidate_key"],'
+        '"link_type":"rename|split|merge|transfer|no_match|unknown",'
+        '"relationship":"father_to_father|father_to_child|child_to_father|child_to_child|unknown",'
+        '"score":0.0'
+        f"{evidence_rule}"
+        f"{reason_rule}"
+        "}\n\n"
+        "INPUT_PAYLOAD_JSON:\n"
+        f"{json.dumps(payload, ensure_ascii=True)}"
+    )
+
+
 def build_repair_prompt(original_prompt: str, invalid_output: str, error_message: str) -> str:
     """Build repair prompt when first model response is malformed."""
 

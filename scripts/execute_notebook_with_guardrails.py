@@ -54,11 +54,34 @@ def _observed_progress_tokens(run_log_path: Path) -> set[str]:
             batch_label = batch_part.split(" ", maxsplit=1)[0].strip()
             if batch_label:
                 tokens.add(f"batch:{batch_label}")
+        elif "stage=second_stage" in line and " primary_key=" in line and "| INFO |" in line:
+            primary_key = (
+                line.split(" primary_key=", maxsplit=1)[1]
+                .split(" ", maxsplit=1)[0]
+                .strip()
+            )
+            step = ""
+            if " step=" in line:
+                step = line.split(" step=", maxsplit=1)[1].split(" ", maxsplit=1)[0].strip()
+            if primary_key:
+                tokens.add(f"second_stage:{step}:{primary_key}")
         elif "stage=grounding" in line and " from_key=" in line and "| INFO |" in line:
             from_key = line.split(" from_key=", maxsplit=1)[1].split(" ", maxsplit=1)[0].strip()
             if from_key:
                 tokens.add(f"grounding:{from_key}")
     return tokens
+
+
+def _no_ai_batches_expected(run_log_path: Path) -> bool:
+    if not run_log_path.exists():
+        return False
+
+    for line in run_log_path.read_text(encoding="utf-8").splitlines():
+        if "stage=finish" in line:
+            return True
+        if "stage=resume" in line and " pending=0" in line:
+            return True
+    return False
 
 
 def _terminate_process(proc: subprocess.Popen[str]) -> None:
@@ -109,6 +132,9 @@ def main() -> int:
             last_batch_progress_at = time.monotonic()
 
         if not seen_first_batch and _has_processed_batch(links_raw_path):
+            seen_first_batch = True
+            last_batch_progress_at = time.monotonic()
+        elif not seen_first_batch and _no_ai_batches_expected(run_log_path):
             seen_first_batch = True
             last_batch_progress_at = time.monotonic()
 

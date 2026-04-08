@@ -33,27 +33,14 @@ class GroundedReplayClient(BaseLLMClient):
         self.calls += 1
         payload = json.loads(prompt.split("INPUT_PAYLOAD_JSON:\n", maxsplit=1)[1].strip())
         include_evidence = bool(payload.get("include_evidence", False))
-        item = payload["items"][0]
-        if "grounding_context" in item:
-            link = {
-                "to_key": "to_0",
-                "link_type": "rename",
-                "relationship": "father_to_father",
-                "score": 0.92,
-            }
-        else:
-            link = {
-                "to_key": None,
-                "link_type": "unknown",
-                "relationship": "unknown",
-                "score": 0.35,
-            }
+        link = {
+            "to_key": "to_0",
+            "link_type": "rename",
+            "relationship": "father_to_father",
+            "score": 0.92,
+        }
         if include_evidence:
-            link["evidence"] = (
-                "Grounded replay test match."
-                if "grounding_context" in item
-                else "Needs grounded verification."
-            )
+            link["evidence"] = "Grounded replay test match."
         response = {
             "decisions": [
                 {

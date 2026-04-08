@@ -28,6 +28,20 @@ The supported live workflow in AdminLineageAI is:
 - Google Search grounding enabled
 - strict JSON output from the model
 - user-controlled batching with automatic split fallback on failed multi-row requests
+- an optional bounded second-stage rescue pass for unmatched rows when `string_exact_match_prune`
+  is set to `from` or `to`
+
+The bounded second stage works like this:
+
+- first pass still does the normal grounded shortlist adjudication
+- if `string_exact_match_prune="from"`, the rescue pass revisits rows with `merge="only_in_from"`
+- if `string_exact_match_prune="to"`, it revisits rows with `merge="only_in_to"`
+- it runs one grounded research call to look for a predecessor or successor name
+- if that research comes back as `unknown` with no lineage hint, the row is left alone and the
+  rescue pass stops there
+- otherwise it searches the full opposite table, rebuilds a short global shortlist, and runs one
+  final strict JSON decision call without additional search grounding
+- the second stage is sequential, one-pass, resumable, and writes `second_stage_results.jsonl`
 
 ## How To Use
 
@@ -98,7 +112,7 @@ print(metadata["artifacts"])
 - `exact_match`: Restricts matching to rows that agree exactly on one or more scope columns such as `country`, `state`, or `district`.
 - `string_exact_match_prune`: Controls how aggressively exact string hits are removed from later AI work. Use this to control token spend.
 - `relationship`: Declares the kind of relationship you expect, or leave it as `auto`.
-- `max_candidates`: Limits how many candidate rows are shown to the model for each source row.
+- `max_candidates`: Limits how many candidate rows are shown to the model for each source row. The default is 6.
 - `evidence`: Adds a short factual summary column.
 - `reason`: Adds a longer explanation column.
 - `replay_enabled`: Reuses prior completed LLM work when the semantic request matches.
@@ -165,7 +179,7 @@ Optional arguments:
 | `model` | `str` | `gemini-3.1-flash-lite-preview` | Gemini model name. |
 | `gemini_api_key_env` | `str` | `GEMINI_API_KEY` | Environment variable name used for the API key. |
 | `batch_size` | `int` | `25` | Maximum number of source rows per Gemini request. When a multi-row request fails, the pipeline retries in smaller batches. |
-| `max_candidates` | `int` | `15` | Candidate shortlist size per source row. |
+| `max_candidates` | `int` | `6` | Candidate shortlist size per source row. |
 | `output_dir` | `str \| Path` | `outputs` | Base output directory for run artifacts. |
 | `seed` | `int` | `42` | Deterministic seed for repeatable request identity. |
 | `temperature` | `float` | `0.75` | Gemini temperature. |
@@ -200,7 +214,7 @@ adminlineage.preview_plan(
     id_col_to=None,
     extra_context_cols=None,
     string_exact_match_prune="none",
-    max_candidates=15,
+    max_candidates=6,
 )
 ```
 
@@ -352,7 +366,7 @@ For file mode, `data.from_path` and `data.to_path` are resolved relative to the 
 | Key | Default | Meaning |
 |---|---|---|
 | `batch_size` | `25` | Maximum number of source rows per Gemini request. Failed multi-row requests are retried in smaller batches. |
-| `max_candidates` | `15` | Candidate shortlist size per source row. |
+| `max_candidates` | `6` | Candidate shortlist size per source row. You can raise this if you want a wider shortlist. |
 | `review_score_threshold` | `0.6` | Rows below this score are flagged for review. |
 
 ### `cache`
@@ -421,7 +435,7 @@ llm:
 
 pipeline:
   batch_size: 25
-  max_candidates: 15
+  max_candidates: 6
   review_score_threshold: 0.6
 
 cache:
@@ -481,9 +495,10 @@ output:
 ## Operational Notes
 
 - `exact_match` scopes the candidate search. If you set `exact_match=["state", "district"]`, a row only compares against rows from the same `(state, district)` group. This is the main hierarchical matching mechanism in the package.
-- Candidate generation happens before Gemini. `max_candidates` controls how many shortlist entries the model sees for each source row.
+- Candidate generation happens before Gemini. `max_candidates` controls how many shortlist entries the model sees for each source row. The default is 6, but you can still raise it explicitly.
 - Exact string handling happens before the model call. `string_exact_match_prune` controls whether already matched rows remain in later AI work.
 - Live Gemini work is grounded with Google Search and returns strict JSON. The pipeline then materializes CSV and Parquet outputs itself.
+- When `string_exact_match_prune` is `from` or `to`, the package can run one bounded second-stage rescue pass on unmatched primary-side rows. That pass does one grounded research call, and only does a second shortlist decision call if the research returned a usable `lineage_hint`.
 - Replay is opt-in. When `replay_enabled=True`, rerunning the same semantic request reuses the prior completed LLM output instead of calling Gemini again.
 - `seed` helps keep request identity deterministic and makes runs easier to reproduce.
 - Cache is configured in CLI config. When enabled, the package uses a SQLite cache at `cache.path`.

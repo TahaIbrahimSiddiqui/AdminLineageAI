@@ -27,7 +27,7 @@ llm:
 
 pipeline:
   batch_size: 5
-  max_candidates: 15
+  max_candidates: 6
   review_score_threshold: 0.6
 
 cache:

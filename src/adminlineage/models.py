@@ -25,6 +25,7 @@ RequestRelationshipType = Literal[
     "child_to_child",
 ]
 ExactStringPruneMode = Literal["none", "from", "to"]
+SecondStageEventType = Literal["rename", "split", "merge", "transfer", "dissolved", "unknown"]
 
 
 class MappingRequest(BaseModel):
@@ -44,7 +45,7 @@ class MappingRequest(BaseModel):
     reason: bool = False
     model: str = "gemini-3.1-flash-lite-preview"
     batch_size: int = 25
-    max_candidates: int = 15
+    max_candidates: int = 6
     seed: int = 42
     temperature: float = 0.75
     enable_google_search: bool = True
@@ -89,6 +90,7 @@ class CandidateLink(BaseModel):
     link_type: LinkType
     relationship: RelationshipType = "unknown"
     merge: MergeType = "both"
+    lineage_hint: str = ""
     evidence: str = ""
     reason: str = ""
     constraints_passed: dict[str, bool] = Field(default_factory=dict)
@@ -207,6 +209,30 @@ def get_batch_response_model(*, include_reason: bool, include_evidence: bool) ->
     if include_reason:
         return LLMBatchResponseWithReason
     return LLMBatchResponseBare
+
+
+class SecondStageResearch(BaseModel):
+    """Strict JSON payload for second-stage lineage research."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_type: SecondStageEventType
+    lineage_hint: str = ""
+    notes: str = ""
+
+
+class SecondStageDecision(BaseModel):
+    """Strict JSON payload for second-stage shortlist adjudication."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    primary_key: str
+    selected_secondary_keys: list[str] = Field(default_factory=list)
+    link_type: LinkType
+    relationship: RelationshipType = "unknown"
+    score: float = Field(ge=0.0, le=1.0)
+    evidence: str = ""
+    reason: str = ""
 
 
 class EvolutionKey(BaseModel):

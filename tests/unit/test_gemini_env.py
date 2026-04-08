@@ -327,6 +327,19 @@ def test_gemini_client_converts_timeout_seconds_to_sdk_milliseconds():
     assert GeminiClient._http_options(90) == {"timeout": 90000}
 
 
+def test_gemini_client_prefers_sdk_http_options_when_available():
+    class FakeHttpOptions:
+        def __init__(self, **kwargs):
+            self.timeout = kwargs["timeout"]
+
+    fake_types = types.SimpleNamespace(HttpOptions=FakeHttpOptions)
+
+    options = GeminiClient._sdk_http_options(fake_types, 90)
+
+    assert isinstance(options, FakeHttpOptions)
+    assert options.timeout == 90000
+
+
 def test_gemini_client_retries_transient_provider_errors(tmp_path, monkeypatch):
     env_path = tmp_path / ".env"
     env_path.write_text("TEST_GEMINI_KEY=from_dotenv\n", encoding="utf-8")

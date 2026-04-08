@@ -29,6 +29,7 @@ _LINK_TYPE_ALIASES = {
     "exact_match": "rename",
 }
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.IGNORECASE | re.DOTALL)
+_MAX_GROUNDED_JSON_ATTEMPTS = 2
 _MAX_GROUNDED_TEXT_ATTEMPTS = 2
 
 
@@ -309,6 +310,17 @@ class GeminiClient(BaseLLMClient):
         return {"timeout": int(timeout_seconds * 1000)}
 
     @classmethod
+    def _sdk_http_options(cls, genai_types: Any, timeout_seconds: int | None) -> Any | None:
+        http_options = cls._http_options(timeout_seconds)
+        if http_options is None:
+            return None
+
+        http_options_cls = getattr(genai_types, "HttpOptions", None)
+        if http_options_cls is None:
+            return http_options
+        return http_options_cls(**http_options)
+
+    @classmethod
     def _parse_json_payload(cls, raw_text: str) -> Any:
         stripped = raw_text.strip()
         candidates: list[str] = []
@@ -381,7 +393,7 @@ class GeminiClient(BaseLLMClient):
             raise LLMServiceError("google-genai types are unavailable in the installed SDK.")
 
         client_kwargs: dict[str, Any] = {"api_key": api_key}
-        http_options = self._http_options(self.request_timeout_seconds)
+        http_options = self._sdk_http_options(genai_types, self.request_timeout_seconds)
         if http_options is not None:
             try:
                 client = genai.Client(http_options=http_options, **client_kwargs)
@@ -415,9 +427,15 @@ class GeminiClient(BaseLLMClient):
                 raise TransientLLMError("Gemini returned an empty response")
             return text
 
+        max_attempts = (
+            min(self.max_attempts, _MAX_GROUNDED_JSON_ATTEMPTS)
+            if enable_google_search
+            else self.max_attempts
+        )
+
         return retry_call(
             _invoke,
-            max_attempts=self.max_attempts,
+            max_attempts=max_attempts,
             base_delay_seconds=self.base_delay_seconds,
             max_delay_seconds=self.max_delay_seconds,
             jitter_seconds=self.jitter_seconds,
@@ -453,7 +471,7 @@ class GeminiClient(BaseLLMClient):
             raise LLMServiceError("google-genai types are unavailable in the installed SDK.")
 
         client_kwargs: dict[str, Any] = {"api_key": api_key}
-        http_options = self._http_options(self.request_timeout_seconds)
+        http_options = self._sdk_http_options(genai_types, self.request_timeout_seconds)
         if http_options is not None:
             try:
                 client = genai.Client(http_options=http_options, **client_kwargs)
@@ -574,6 +592,7 @@ class GeminiClient(BaseLLMClient):
             if cached is not None:
                 return self._validate_schema(cached, schema)
 
+        schema_for_call = schema
         try:
             raw_text = self._call_model(
                 prompt,
@@ -583,22 +602,39 @@ class GeminiClient(BaseLLMClient):
                 enable_google_search=enable_google_search,
                 schema=schema,
             )
-            schema_for_call = schema
         except LLMServiceError as exc:
-            if (
-                not enable_google_search
-                and schema is not None
-                and self._is_unsupported_response_schema_error(exc)
-            ):
-                raw_text = self._call_model(
-                    prompt,
-                    model=model,
-                    temperature=temperature,
-                    seed=seed,
-                    enable_google_search=enable_google_search,
-                    schema=None,
+            # Grounded structured JSON is the most brittle path in Gemini. If that fails,
+            # fall back to prompt-only JSON, and for grounded calls fall back one more time
+            # to plain text that we still parse and validate as JSON.
+            should_try_prompt_only_json = (
+                schema is not None
+                and (
+                    enable_google_search
+                    or self._is_unsupported_response_schema_error(exc)
                 )
-                schema_for_call = None
+            )
+            if should_try_prompt_only_json:
+                try:
+                    raw_text = self._call_model(
+                        prompt,
+                        model=model,
+                        temperature=temperature,
+                        seed=seed,
+                        enable_google_search=enable_google_search,
+                        schema=None,
+                    )
+                    schema_for_call = None
+                except LLMServiceError:
+                    if not enable_google_search:
+                        raise
+                    raw_text = self._call_text_model(
+                        prompt,
+                        model=model,
+                        temperature=temperature,
+                        seed=seed,
+                        enable_google_search=True,
+                    )
+                    schema_for_call = None
             else:
                 raise
         try:
