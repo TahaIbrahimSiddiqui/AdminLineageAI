@@ -10,6 +10,36 @@ The package generates candidate matches between two datasets, asks Gemini to cho
   <img alt="This is an experimental utility. Treat these crosswalks as assistive outputs and cross-verify them, especially in important cases." src="https://img.shields.io/static/v1?label=This%20is%20an%20experimental%20utility.&message=Treat%20these%20crosswalks%20as%20assistive%20outputs%20and%20cross-verify%20them%2C%20especially%20in%20important%20cases.&color=red">
 </p>
 
+## How It Works
+
+Here is a simple nested-data example. Suppose the earlier table has rows like `India > Uttar Pradesh > Faizabad > Rudauli`, and the later table has rows like `India > Uttar Pradesh > Ayodhya > Rudauli`. The package uses the nested columns such as `state` and `district` to control where matching is allowed, then asks Gemini to decide among shortlisted candidates.
+
+```mermaid
+flowchart TD
+    A["Input table A (earlier period)<br/>1951<br/>country=India<br/>state=Uttar Pradesh<br/>district=Faizabad<br/>subdistrict=Rudauli"]
+    B["Input table B (later period)<br/>2001<br/>country=India<br/>state=Uttar Pradesh<br/>district=Ayodhya<br/>subdistrict=Rudauli"]
+    C["Validate inputs<br/>check required columns<br/>check IDs and exact_match fields"]
+    D["Normalize names<br/>canonical forms<br/>tokens and character ngrams"]
+    E["Apply nested scope<br/>exact_match=['state', 'district']<br/>or another user-defined scope"]
+    F["Resolve exact string hits first<br/>optional prune with string_exact_match_prune"]
+    G["Build shortlist inside scope<br/>top max_candidates rows<br/>default=6"]
+    H["Grounded Gemini adjudication<br/>strict JSON output<br/>choose among shortlisted candidates"]
+    I["Materialize evolution key<br/>set merge as both / only_in_from / only_in_to"]
+    J["Optional bounded second stage<br/>for unmatched primary-side rows<br/>research lineage and retry once"]
+    K["Write outputs<br/>evolution_key.csv<br/>review_queue.csv<br/>run_metadata.json<br/>replay bundle"]
+
+    A --> C
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+    H --> I
+    I --> J
+    J --> K
+```
+
 ## Possible use cases
 
 Below are few possible scenarios where this package can be of assistance. Moreover, we would love to hear about other user experiences and use cases for this package.
