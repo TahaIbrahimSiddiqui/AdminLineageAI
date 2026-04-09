@@ -124,39 +124,51 @@ print(metadata["artifacts"])
 
 ## Matching Flow Example
 
-This example follows a nested district-level match inside `India > Uttar Pradesh` from `2011` to `2025`. Here `string_exact_match_prune='to'`, so the `to` side is treated as the primary side in the second stage, while the `from` side stays available as the global secondary pool for rescue matching.
+This example follows a nested district-level match inside `India > Uttar Pradesh` from `2011` to `2025`. Here `string_exact_match_prune='to'` (this set `to` as primary side and `from` as secondary side where all candidates stay global).
 
 ```mermaid
 flowchart TD
     A["From table (2011)<br/>India / Uttar Pradesh / Agra<br/>India / Uttar Pradesh / Kanpur Dehat<br/>India / Uttar Pradesh / Faizabad<br/>India / Uttar Pradesh / Allahabad"]
     B["To table (2025)<br/>India / Uttar Pradesh / Agra<br/>India / Uttar Pradesh / Kanpur Rural<br/>India / Uttar Pradesh / Ayodhya<br/>India / Uttar Pradesh / Prayagraj"]
-    C["Nested settings<br/>map_col='district'<br/>exact_match=['state']<br/>string_exact_match_prune='to'<br/>to = primary side later<br/>from = secondary side global later"]
+    C["Nested settings<br/>map_col='district'<br/>exact_match=['state']<br/>string_exact_match_prune='to'<br/>this set 'to' as primary side<br/>and 'from' as secondary side<br/>where all candidates stay global"]
     D["Validate inputs and normalize names"]
     E["Exact string match pruning before LLM"]
     F["Agra -> Agra<br/>cut out here<br/>no LLM used here<br/>just exact string match"]
-    G["First stage AI on remaining rows<br/>shortlist candidates inside scope<br/>grounded Gemini strict JSON"]
-    H["AI can match<br/>Kanpur Dehat -> Kanpur Rural<br/>because it has context that 'dehat' means 'rural' in Hindi"]
-    I{"Do Ayodhya or Prayagraj stay unmatched<br/>after first stage?"}
-    J["Produce output directly<br/>if first stage already resolved all rows"]
-    K["Second stage<br/>to side becomes primary<br/>ask if Ayodhya / Prayagraj were renamed, merged, split, or transferred"]
-    L["Search full global from-side candidates<br/>Faizabad -> Ayodhya<br/>Allahabad -> Prayagraj"]
-    M["Rewrite final evolution key<br/>Agra -> Agra<br/>Kanpur Dehat -> Kanpur Rural<br/>Faizabad -> Ayodhya<br/>Allahabad -> Prayagraj"]
-    N["Write artifacts<br/>evolution_key.csv<br/>review_queue.csv<br/>run_metadata.json<br/>replay bundle"]
+    H["AI matches remaining rows on primary side<br/>(Kanpur Rural, Ayodhya, Prayagraj)<br/>using grounded Gemini search<br/>Kanpur Dehat is removed from the primary-side candidates"]
+    I["AI matches Kanpur Dehat -> Kanpur Rural<br/>because it has context that 'dehat' means 'rural' in Hindi"]
+    J{"Do Ayodhya or Prayagraj stay unmatched<br/>after first stage?"}
+    K["Produce output directly<br/>if first stage already resolved all rows"]
+    L["Do intensive Gemini search of potential predecessor / successor of Ayodhya / Prayagraj<br/>if they were renamed, merged, split, or transferred"]
+    M["If Gemini finds a potential predecessor / successor for that district<br/>match it with the global district list from the secondary side"]
+    N["Write final evolution key<br/>Agra -> Agra<br/>Kanpur Dehat -> Kanpur Rural<br/>Faizabad -> Ayodhya<br/>Allahabad -> Prayagraj"]
+    O["Write artifacts<br/>evolution_key.csv<br/>review_queue.csv<br/>run_metadata.json<br/>replay bundle"]
+
+    subgraph G["First stage"]
+        H
+        I
+    end
+
+    subgraph P["Second stage"]
+        L
+        M
+    end
 
     A --> C
     B --> C
     C --> D
     D --> E
     E --> F
-    E --> G
-    G --> H
+    E --> H
     H --> I
-    I -- "No" --> J
-    I -- "Yes" --> K
-    K --> L
-    J --> N
+    I --> J
+    J -- "No" --> K
+    J -- "Yes" --> L
     L --> M
+    K --> O
+    A --> N
+    B --> N
     M --> N
+    N --> O
 ```
 
 ## Optional CLI Workflow
