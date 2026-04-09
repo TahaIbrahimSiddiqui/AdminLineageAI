@@ -70,9 +70,7 @@ GEMINI_API_KEY=your_api_key_here
 
 The package can load a nearby `.env` file when it looks for the key.
 
-3. Prepare two tables: one earlier-period table and one later-period table.
-
-4. Choose the name column on each side, and add optional exact-match columns, IDs, or extra context columns if you have them.
+3. Choose the name column on each side, and add optional exact-match columns, IDs, or extra context columns if you have them.
 
 5. Run the matcher.
 
