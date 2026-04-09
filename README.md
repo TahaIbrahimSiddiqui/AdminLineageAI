@@ -4,7 +4,7 @@ AdminLineageAI makes crosswalks between administrative locations such as distric
 
 Matching administrative units by hand is labour-intensive work. Through this package, we hope to reduce the manual work of matching administrative units between datasets while still keeping a clear review trail and reproducibility.
 
-The package generates candidate matches between two datasets, asks Gemini to choose among them, and writes a crosswalk plus review artifacts. It outputs a final evolution key as csv.
+The package generates candidate matches between two datasets, asks Gemini to choose among them, and writes a crosswalk plus review artifacts. It outputs a final evolution key plus review files as CSV and Parquet.
 
 <p align="center">
   <img alt="This is an experimental utility. Treat these crosswalks as assistive outputs and cross-verify them, especially in important cases." src="https://img.shields.io/static/v1?label=This%20is%20an%20experimental%20utility.&message=Treat%20these%20crosswalks%20as%20assistive%20outputs%20and%20cross-verify%20them%2C%20especially%20in%20important%20cases.&color=red">
@@ -50,16 +50,16 @@ The bounded second stage works like this:
 
 You do not need the CLI to use AdminLineageAI. The simplest path is the Python API.
 
-1. Install the package from the repository root.
+1. Install the published package.
 
 ```bash
-pip install -e .
+pip install adminlineage
 ```
 
 Install the optional parquet dependency if you want parquet output support:
 
 ```bash
-pip install -e ".[io]"
+pip install "adminlineage[io]"
 ```
 
 2. Set a Gemini API key in `GEMINI_API_KEY`, or use another environment variable name and pass it explicitly.
@@ -415,7 +415,7 @@ For file mode, `data.from_path` and `data.to_path` are resolved relative to the 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `batch_size` | `25` | Maximum number of source rows per Gemini request. Failed multi-row requests are retried in smaller batches. |
+| `batch_size` | `5` | Maximum number of source rows per Gemini request. Failed multi-row requests are retried in smaller batches. |
 | `max_candidates` | `6` | Candidate shortlist size per source row. You can raise this if you want a wider shortlist. |
 | `review_score_threshold` | `0.6` | Rows below this score are flagged for review. |
 
@@ -484,7 +484,7 @@ llm:
   request_timeout_seconds: 90
 
 pipeline:
-  batch_size: 25
+  batch_size: 5
   max_candidates: 6
   review_score_threshold: 0.6
 

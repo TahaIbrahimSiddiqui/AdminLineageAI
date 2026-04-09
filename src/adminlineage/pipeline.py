@@ -753,7 +753,7 @@ def run_pipeline(
     reason: bool = False,
     model: str = "gemini-3.1-flash-lite-preview",
     gemini_api_key_env: str = "GEMINI_API_KEY",
-    batch_size: int = 25,
+    batch_size: int = 5,
     max_candidates: int = 6,
     output_dir: str | Path = "outputs",
     seed: int = 42,

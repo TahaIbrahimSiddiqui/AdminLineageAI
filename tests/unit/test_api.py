@@ -78,3 +78,31 @@ def test_build_evolution_key_uses_default_max_candidates_of_six(monkeypatch):
 
     kwargs = captured["kwargs"]
     assert kwargs["max_candidates"] == 6
+
+
+def test_build_evolution_key_uses_default_batch_size_of_five(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_run_pipeline(df_from, df_to, **kwargs):
+        captured["df_from"] = df_from
+        captured["df_to"] = df_to
+        captured["kwargs"] = kwargs
+        return pd.DataFrame(), {"status": "ok"}
+
+    monkeypatch.setattr(api, "run_pipeline", fake_run_pipeline)
+
+    df_from = pd.DataFrame({"district_name": ["A"]})
+    df_to = pd.DataFrame({"District": ["A"]})
+
+    api.build_evolution_key(
+        df_from,
+        df_to,
+        country="India",
+        year_from=2011,
+        year_to=2025,
+        map_col_from="district_name",
+        map_col_to="District",
+    )
+
+    kwargs = captured["kwargs"]
+    assert kwargs["batch_size"] == 5

@@ -44,7 +44,7 @@ class MappingRequest(BaseModel):
     evidence: bool = False
     reason: bool = False
     model: str = "gemini-3.1-flash-lite-preview"
-    batch_size: int = 25
+    batch_size: int = 5
     max_candidates: int = 6
     seed: int = 42
     temperature: float = 0.75

@@ -79,6 +79,29 @@ llm:
     assert cfg.pipeline.max_candidates == 6
 
 
+def test_load_config_uses_default_batch_size_of_five(tmp_path: Path):
+    cfg_path = tmp_path / "default-batch-size.yml"
+    cfg_path.write_text(
+        """
+request:
+  country: India
+  year_from: 1951
+  year_to: 2001
+  map_col_from: subdistrict
+data:
+  mode: files
+  from_path: examples/data/from_units.csv
+  to_path: examples/data/to_units.csv
+llm:
+  provider: mock
+""".strip(),
+        encoding="utf-8",
+    )
+
+    cfg = load_config(cfg_path)
+    assert cfg.pipeline.batch_size == 5
+
+
 def test_load_config_invalid_files_mode(tmp_path: Path):
     cfg_path = tmp_path / "bad.yml"
     cfg_path.write_text(

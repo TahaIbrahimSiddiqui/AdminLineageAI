@@ -15,5 +15,6 @@ def test_packaged_notebook_defaults_max_candidates_to_six():
     notebook_text = "\n".join(sources)
 
     assert "max_candidates = 6" in notebook_text
+    assert "batch_size = 5" in notebook_text
     assert "ADMINLINEAGE_NOTEBOOK_BATCH_SIZE" in notebook_text
     assert "ADMINLINEAGE_NOTEBOOK_STRING_EXACT_MATCH_PRUNE" in notebook_text
