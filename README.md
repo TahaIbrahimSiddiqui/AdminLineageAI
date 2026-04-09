@@ -571,4 +571,4 @@ Those are the current defaults. Change them when you need replay, evidence, stri
 
 If you use AdminLineageAI in published work, please cite:
 
-Siddiqui, T. I., and Vetharenian Hari.
+Siddiqui, T. I., and Vetharenian H. Tariq A.
