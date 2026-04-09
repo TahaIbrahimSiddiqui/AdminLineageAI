@@ -10,36 +10,6 @@ The package generates candidate matches between two datasets, asks Gemini to cho
   <img alt="This is an experimental utility. Treat these crosswalks as assistive outputs and cross-verify them, especially in important cases." src="https://img.shields.io/static/v1?label=This%20is%20an%20experimental%20utility.&message=Treat%20these%20crosswalks%20as%20assistive%20outputs%20and%20cross-verify%20them%2C%20especially%20in%20important%20cases.&color=red">
 </p>
 
-## How It Works
-
-Here is a simple nested-data example. Suppose the earlier table has rows like `India > Uttar Pradesh > Faizabad > Rudauli`, and the later table has rows like `India > Uttar Pradesh > Ayodhya > Rudauli`. The package uses the nested columns such as `state` and `district` to control where matching is allowed, then asks Gemini to decide among shortlisted candidates.
-
-```mermaid
-flowchart TD
-    A["Input table A (earlier period)<br/>1951<br/>country=India<br/>state=Uttar Pradesh<br/>district=Faizabad<br/>subdistrict=Rudauli"]
-    B["Input table B (later period)<br/>2001<br/>country=India<br/>state=Uttar Pradesh<br/>district=Ayodhya<br/>subdistrict=Rudauli"]
-    C["Validate inputs<br/>check required columns<br/>check IDs and exact_match fields"]
-    D["Normalize names<br/>canonical forms<br/>tokens and character ngrams"]
-    E["Apply nested scope<br/>exact_match=['state', 'district']<br/>or another user-defined scope"]
-    F["Resolve exact string hits first<br/>optional prune with string_exact_match_prune"]
-    G["Build shortlist inside scope<br/>top max_candidates rows<br/>default=6"]
-    H["Grounded Gemini adjudication<br/>strict JSON output<br/>choose among shortlisted candidates"]
-    I["Materialize evolution key<br/>set merge as both / only_in_from / only_in_to"]
-    J["Optional bounded second stage<br/>for unmatched primary-side rows<br/>research lineage and retry once"]
-    K["Write outputs<br/>evolution_key.csv<br/>review_queue.csv<br/>run_metadata.json<br/>replay bundle"]
-
-    A --> C
-    B --> C
-    C --> D
-    D --> E
-    E --> F
-    F --> G
-    G --> H
-    H --> I
-    I --> J
-    J --> K
-```
-
 ## Possible use cases
 
 Below are few possible scenarios where this package can be of assistance. Moreover, we would love to hear about other user experiences and use cases for this package.
@@ -151,6 +121,37 @@ print(metadata["artifacts"])
 - `replay_enabled`: Reuses prior completed LLM work when the semantic request matches.
 - `seed`: Keeps request identity deterministic for more reproducible reruns.
 - `output_dir`: Changes where run artifacts are written.
+
+## Matching Flow Example
+
+This example follows a nested district-level match inside `India > Uttar Pradesh`. It shows how unchanged names stay matched in the first pass, while renamed districts such as `Faizabad -> Ayodhya` and `Allahabad -> Prayagraj` can still be rescued in the second stage.
+
+```mermaid
+flowchart TD
+    A["Earlier table (from)<br/>India / Uttar Pradesh / Agra<br/>India / Uttar Pradesh / Faizabad<br/>India / Uttar Pradesh / Allahabad"]
+    B["Later table (to)<br/>India / Uttar Pradesh / Agra<br/>India / Uttar Pradesh / Ayodhya<br/>India / Uttar Pradesh / Prayagraj"]
+    C["Choose nested settings<br/>map_col='district'<br/>exact_match=['state']<br/>string_exact_match_prune='to'"]
+    D["Normalize names and validate inputs"]
+    E["First pass<br/>exact string pruning + shortlist generation<br/>grounded Gemini strict JSON"]
+    F["Stable same-name matches stay matched<br/>Agra -> Agra"]
+    G["Rows left unmatched on the to side become only_in_to<br/>Ayodhya<br/>Prayagraj"]
+    H["Second stage<br/>Ask Gemini with Google Search:<br/>was this renamed, merged, split, or transferred?"]
+    I["Global rescue search on full from table<br/>Ayodhya -> Faizabad<br/>Prayagraj -> Allahabad"]
+    J["Rewrite final evolution key<br/>Agra -> Agra<br/>Faizabad -> Ayodhya<br/>Allahabad -> Prayagraj"]
+    K["Write artifacts<br/>evolution_key.csv<br/>review_queue.csv<br/>run_metadata.json<br/>replay bundle"]
+
+    A --> C
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    E --> G
+    G --> H
+    H --> I
+    F --> J
+    I --> J
+    J --> K
+```
 
 ## Optional CLI Workflow
 
