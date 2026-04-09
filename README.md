@@ -8,7 +8,12 @@ Matching administrative units by hand is labour-intensive work. Names vary acros
 
 You give it one table from an earlier period, one table from a later period, the name columns you want to map, and any scope columns that must agree exactly. The package generates candidate matches, asks Gemini to choose among them, and writes a crosswalk plus review artifacts. The final evolution key includes a `merge` indicator so you can tell whether a row exists on both sides, only in the earlier-period table, or only in the later-period table.
 
-<p align="center"><sub><strong>Experimental:</strong> Treat these crosswalks as assistive outputs and cross-verify them, especially in important cases. We would love to hear about other field experiences and use cases for this package.</sub></p>
+<p align="center">
+  <img alt="This is an experimental utility" src="https://img.shields.io/badge/This%20is%20an%20experimental%20utility-red">
+</p>
+<p align="center">
+  Treat these crosswalks as assistive outputs and cross-verify them, especially in important cases. We would love to hear about other field experiences and use cases for this package.
+</p>
 
 ## Where It Helps
 
