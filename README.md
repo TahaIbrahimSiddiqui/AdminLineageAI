@@ -226,7 +226,7 @@ Optional arguments:
 | `string_exact_match_prune` | `str` | `none` | `none` keeps exact-string hits in later AI work, `from` removes matched source rows from AI work, `to` removes matched source and target rows from later AI work. |
 | `evidence` | `bool` | `False` | Adds a short evidence summary and includes the `evidence` column. |
 | `reason` | `bool` | `False` | Adds a longer explanation in the `reason` column. |
-| `model` | `str` | `gemini-3.1-flash-lite-preview` | Gemini model name. |
+| `model` | `str` | `gemini-3-flash-preview` | Gemini model name. |
 | `gemini_api_key_env` | `str` | `GEMINI_API_KEY` | Environment variable name used for the API key. |
 | `batch_size` | `int` | `25` | Maximum number of source rows per Gemini request. When a multi-row request fails, the pipeline retries in smaller batches. |
 | `max_candidates` | `int` | `6` | Candidate shortlist size per source row. |
