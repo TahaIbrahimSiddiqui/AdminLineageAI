@@ -7,7 +7,7 @@ Matching administrative units by hand is labour-intensive work. Through this pac
 The package generates candidate matches between two datasets, asks Gemini to choose among them, and writes a crosswalk plus review artifacts. It outputs a final evolution key as csv.
 
 <p align="center">
-  <strong style="color: #d73a49;">This is an experimental utility.</strong>
+  <img alt="This is an experimental utility." src="https://img.shields.io/badge/experimental-utility-red">
 </p>
 <p align="center">
   Treat these crosswalks as assistive outputs and cross-verify them, especially in important cases. We would love to hear about other field experiences and use cases for this package.
