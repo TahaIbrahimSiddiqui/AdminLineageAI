@@ -228,7 +228,7 @@ Optional arguments:
 | `reason` | `bool` | `False` | Adds a longer explanation in the `reason` column. |
 | `model` | `str` | `gemini-3-flash-preview` | Gemini model name. |
 | `gemini_api_key_env` | `str` | `GEMINI_API_KEY` | Environment variable name used for the API key. |
-| `batch_size` | `int` | `25` | Maximum number of source rows per Gemini request. When a multi-row request fails, the pipeline retries in smaller batches. |
+| `batch_size` | `int` | `5` | Maximum number of source rows per Gemini request. When a multi-row request fails, the pipeline retries in smaller batches. |
 | `max_candidates` | `int` | `6` | Candidate shortlist size per source row. |
 | `output_dir` | `str \| Path` | `outputs` | Base output directory for run artifacts. |
 | `seed` | `int` | `42` | Deterministic seed for repeatable request identity. |
