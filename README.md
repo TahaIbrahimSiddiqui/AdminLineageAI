@@ -124,21 +124,24 @@ print(metadata["artifacts"])
 
 ## Matching Flow Example
 
-This example follows a nested district-level match inside `India > Uttar Pradesh`. It shows how unchanged names stay matched in the first pass, while renamed districts such as `Faizabad -> Ayodhya` and `Allahabad -> Prayagraj` can still be rescued in the second stage.
+This example follows a nested district-level match inside `India > Uttar Pradesh` from `2011` to `2025`. Here `string_exact_match_prune='to'`, so the `to` side is treated as the primary side in the second stage, while the `from` side stays available as the global secondary pool for rescue matching.
 
 ```mermaid
 flowchart TD
-    A["Earlier table (from)<br/>India / Uttar Pradesh / Agra<br/>India / Uttar Pradesh / Faizabad<br/>India / Uttar Pradesh / Allahabad"]
-    B["Later table (to)<br/>India / Uttar Pradesh / Agra<br/>India / Uttar Pradesh / Ayodhya<br/>India / Uttar Pradesh / Prayagraj"]
-    C["Choose nested settings<br/>map_col='district'<br/>exact_match=['state']<br/>string_exact_match_prune='to'"]
-    D["Normalize names and validate inputs"]
-    E["First pass<br/>exact string pruning + shortlist generation<br/>grounded Gemini strict JSON"]
-    F["Stable same-name matches stay matched<br/>Agra -> Agra"]
-    G["Rows left unmatched on the to side become only_in_to<br/>Ayodhya<br/>Prayagraj"]
-    H["Second stage<br/>Ask Gemini with Google Search:<br/>was this renamed, merged, split, or transferred?"]
-    I["Global rescue search on full from table<br/>Ayodhya -> Faizabad<br/>Prayagraj -> Allahabad"]
-    J["Rewrite final evolution key<br/>Agra -> Agra<br/>Faizabad -> Ayodhya<br/>Allahabad -> Prayagraj"]
-    K["Write artifacts<br/>evolution_key.csv<br/>review_queue.csv<br/>run_metadata.json<br/>replay bundle"]
+    A["From table (2011)<br/>India / Uttar Pradesh / Agra<br/>India / Uttar Pradesh / Kanpur Dehat<br/>India / Uttar Pradesh / Faizabad<br/>India / Uttar Pradesh / Allahabad"]
+    B["To table (2025)<br/>India / Uttar Pradesh / Agra<br/>India / Uttar Pradesh / Kanpur Rural<br/>India / Uttar Pradesh / Ayodhya<br/>India / Uttar Pradesh / Prayagraj"]
+    C["Nested settings<br/>map_col='district'<br/>exact_match=['state']<br/>string_exact_match_prune='to'<br/>to = primary side later<br/>from = secondary side global later"]
+    D["Validate inputs and normalize names"]
+    E["Exact string match pruning before LLM"]
+    F["Agra -> Agra<br/>cut out here<br/>no LLM used here<br/>just exact string match"]
+    G["First stage AI on remaining rows<br/>shortlist candidates inside scope<br/>grounded Gemini strict JSON"]
+    H["AI can match<br/>Kanpur Dehat -> Kanpur Rural<br/>because it has context that 'dehat' means 'rural' in Hindi"]
+    I{"Do Ayodhya or Prayagraj stay unmatched<br/>after first stage?"}
+    J["Produce output directly<br/>if first stage already resolved all rows"]
+    K["Second stage<br/>to side becomes primary<br/>ask if Ayodhya / Prayagraj were renamed, merged, split, or transferred"]
+    L["Search full global from-side candidates<br/>Faizabad -> Ayodhya<br/>Allahabad -> Prayagraj"]
+    M["Rewrite final evolution key<br/>Agra -> Agra<br/>Kanpur Dehat -> Kanpur Rural<br/>Faizabad -> Ayodhya<br/>Allahabad -> Prayagraj"]
+    N["Write artifacts<br/>evolution_key.csv<br/>review_queue.csv<br/>run_metadata.json<br/>replay bundle"]
 
     A --> C
     B --> C
@@ -148,9 +151,12 @@ flowchart TD
     E --> G
     G --> H
     H --> I
-    F --> J
-    I --> J
-    J --> K
+    I -- "No" --> J
+    I -- "Yes" --> K
+    K --> L
+    J --> N
+    L --> M
+    M --> N
 ```
 
 ## Optional CLI Workflow
