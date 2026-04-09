@@ -133,8 +133,8 @@ flowchart TD
     C["Nested settings<br/>map_col='district'<br/>exact_match=['state']<br/>string_exact_match_prune='to'<br/>this set 'to' as primary side<br/>and 'from' as secondary side<br/>where all candidates stay global"]
     D["Validate inputs and normalize names"]
     E["Exact string match pruning before LLM"]
-    F["Agra -> Agra<br/>cut out here<br/>no LLM used here<br/>just exact string match"]
-    H["AI matches remaining rows on primary side<br/>(Kanpur Rural, Ayodhya, Prayagraj)<br/>using grounded Gemini search<br/>Kanpur Dehat is removed from the primary-side candidates"]
+    F["Agra -> Agra<br/>no LLM used here<br/>just exact string match"]
+    H["AI matches remaining rows on primary side<br/>(Kanpur Rural, Ayodhya, Prayagraj)<br/>using grounded Gemini search<br/>"]
     I["AI matches Kanpur Dehat -> Kanpur Rural<br/>because it has context that 'dehat' means 'rural' in Hindi"]
     J{"Do Ayodhya or Prayagraj stay unmatched<br/>after first stage?"}
     K["Produce output directly<br/>if first stage already resolved all rows"]
