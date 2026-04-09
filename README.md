@@ -1,16 +1,13 @@
 # AdminLineageAI
 
-AdminLineageAI makes crosswalks between administrative locations such as districts (ADM2), subdistricts (ADM3), states (ADM1), and countries (ADM0) across datasets that may come from completely different sources and different periods. It uses AI to compare likely matches, reason over spelling variants and language-specific forms, and produce a usable crosswalk plus review artifacts.
+AdminLineageAI makes crosswalks between administrative locations such as districts (ADM2), subdistricts (ADM3), states (ADM1), and countries (ADM0) across datasets that may come from completely different sources and different periods. It uses AI to compare likely matches, reason over spelling variants and language-specific forms, administrative split/merges/renames and produce a usable crosswalk plus review artifacts.
 
-Matching administrative units by hand is labour-intensive work. Names vary across sources, spellings shift across languages, and units are often renamed, split, or merged. Through this package, we hope to reduce the manual work of matching administrative units between datasets while still keeping a clear review trail.
+Matching administrative units by hand is labour-intensive work. Through this package, we hope to reduce the manual work of matching administrative units between datasets while still keeping a clear review trail and reproducibility.
 
-You give it one table from an earlier period, one table from a later period, the name columns you want to map, and any scope columns that must agree exactly. The package generates candidate matches, asks Gemini to choose among them, and writes a crosswalk plus review artifacts. The final evolution key includes a `merge` indicator so you can tell whether a row exists on both sides, only in the earlier-period table, or only in the later-period table.
+The package generates candidate matches between two datasets, asks Gemini to choose among them, and writes a crosswalk plus review artifacts. It outputs a final evolution key as csv.
 
 <p align="center">
-  <img alt="This is an experimental utility" src="https://img.shields.io/badge/This%20is%20an%20experimental%20utility-red">
-</p>
-<p align="center">
-  Treat these crosswalks as assistive outputs and cross-verify them, especially in important cases. We would love to hear about other field experiences and use cases for this package.
+  <img alt="This is an experimental utility; Treat these crosswalks as assistive outputs and cross-verify them, especially in important cases. We would love to hear about other field experiences and use cases for this package." src="https://img.shields.io/badge/This%20is%20an%20experimental%20utility-red">
 </p>
 
 ## Where It Helps
