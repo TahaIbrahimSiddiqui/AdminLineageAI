@@ -24,14 +24,6 @@ RELATIONSHIP_TYPES = (
     "unknown",
 )
 
-REQUEST_RELATIONSHIP_TYPES = (
-    "auto",
-    "father_to_father",
-    "father_to_child",
-    "child_to_father",
-    "child_to_child",
-)
-
 MERGE_TYPES = (
     "both",
     "only_in_from",

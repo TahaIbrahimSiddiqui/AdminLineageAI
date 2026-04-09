@@ -97,48 +97,6 @@ def build_batch_prompt(
     )
 
 
-def build_grounding_verification_prompt(
-    *,
-    country: str,
-    year_from: int | str,
-    year_to: int | str,
-    relationship: str,
-    exact_match: list[str],
-    from_item: dict[str, Any],
-    candidate_subset: list[dict[str, Any]],
-    current_links: list[dict[str, Any]],
-) -> str:
-    """Create a search-grounded verification prompt for one ambiguous row."""
-
-    payload = {
-        "schema_version": PROMPT_SCHEMA_VERSION,
-        "country": country,
-        "year_from": year_from,
-        "year_to": year_to,
-        "requested_relationship": relationship,
-        "exact_match": exact_match,
-        "from_item": from_item,
-        "candidate_subset": candidate_subset,
-        "current_links": current_links,
-    }
-
-    return (
-        "You are verifying shortlist candidates for an administrative lineage mapping task.\n"
-        "Use Google Search only to verify names, geography, dates, boundary history, and lineage "
-        "facts for the supplied source unit and shortlist candidates.\n"
-        "Rules:\n"
-        "1) Evaluate only the supplied `candidate_subset` entries.\n"
-        "2) Do not invent or recommend any to_key outside the supplied shortlist.\n"
-        "3) If search evidence is weak, contradictory, or missing, say so clearly.\n"
-        "4) Return plain text only, no markdown fences.\n"
-        "5) Keep the answer to 3-6 short factual lines.\n"
-        "6) Mention candidate keys explicitly when supported or contradicted.\n"
-        "7) If evidence is inconclusive, say `inconclusive` plainly.\n\n"
-        "INPUT_PAYLOAD_JSON:\n"
-        f"{json.dumps(payload, ensure_ascii=True)}"
-    )
-
-
 def build_second_stage_research_prompt(
     *,
     country: str,

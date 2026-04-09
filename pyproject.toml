@@ -40,6 +40,7 @@ dev = [
   "build>=1.2",
   "pytest>=8.0",
   "ruff>=0.5",
+  "vulture>=2.16",
 ]
 
 [project.scripts]
@@ -57,3 +58,7 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+[tool.vulture]
+ignore_decorators = ["@field_validator", "@model_validator"]
+ignore_names = ["LLMBatchResponseNoReason", "backend", "load_data", "message", "model_config", "source_path"]

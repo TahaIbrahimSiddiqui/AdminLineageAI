@@ -466,24 +466,6 @@ def _collect_latest_records(
     return latest_success, latest_error
 
 
-def _grounding_target_from_keys(
-    crosswalk: pd.DataFrame,
-    review_queue: pd.DataFrame,
-    *,
-    review_score_threshold: float,
-) -> list[str]:
-    if crosswalk.empty:
-        return []
-
-    target_keys = set(review_queue["from_key"].tolist()) if not review_queue.empty else set()
-    ambiguous_mask = (
-        crosswalk["link_type"].isin(["unknown", "no_match"])
-        | crosswalk["score"].lt(review_score_threshold)
-    )
-    target_keys.update(crosswalk.loc[ambiguous_mask, "from_key"].tolist())
-    return sorted(target_keys)
-
-
 def _second_stage_primary_side(prune_mode: ExactStringPruneMode) -> str | None:
     if prune_mode in {"from", "to"}:
         return prune_mode
@@ -1740,13 +1722,6 @@ def run_pipeline(
             row.update({col: to_row[col] for col in exact_match})
             rows.append(row)
         return rows
-
-    def _build_crosswalk_and_review_queue(
-        latest_success: dict[str, dict[str, Any]],
-        latest_error: dict[str, dict[str, Any]],
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        crosswalk = pd.DataFrame(_materialize_rows(latest_success, latest_error))
-        return _finalize_crosswalk_table(crosswalk)
 
     def _apply_second_stage_record(
         crosswalk: pd.DataFrame,

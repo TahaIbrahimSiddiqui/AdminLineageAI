@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .schema import OUTPUT_SCHEMA_VERSION, PROMPT_SCHEMA_VERSION
+from .schema import PROMPT_SCHEMA_VERSION
 
 LinkType = Literal["rename", "split", "merge", "transfer", "no_match", "unknown"]
-MergeType = Literal["both", "only_in_from", "only_in_to"]
 RelationshipType = Literal[
     "father_to_father",
     "father_to_child",
@@ -64,36 +63,6 @@ class MappingRequest(BaseModel):
         if value <= 0:
             raise ValueError("must be > 0")
         return value
-
-
-class AdminUnitRecord(BaseModel):
-    """Normalized administrative unit row."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    period: str
-    name: str
-    canonical_name: str
-    unit_id: str | int | None = None
-    exact_match: dict[str, Any] = Field(default_factory=dict)
-    extras: dict[str, Any] = Field(default_factory=dict)
-
-
-class CandidateLink(BaseModel):
-    """A proposed lineage link for the final crosswalk."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    from_key: str
-    to_key: str | None = None
-    score: float = Field(ge=0.0, le=1.0)
-    link_type: LinkType
-    relationship: RelationshipType = "unknown"
-    merge: MergeType = "both"
-    lineage_hint: str = ""
-    evidence: str = ""
-    reason: str = ""
-    constraints_passed: dict[str, bool] = Field(default_factory=dict)
 
 
 class LLMChosenLinkBare(BaseModel):
@@ -193,9 +162,7 @@ class LLMBatchResponseWithEvidenceAndReason(BaseModel):
     decisions: list[LLMFromDecisionWithEvidenceAndReason]
 
 
-# Backward-compatible aliases for the older evidence-required response names.
-LLMChosenLinkNoReason = LLMChosenLinkWithEvidence
-LLMFromDecisionNoReason = LLMFromDecisionWithEvidence
+# Retain the historical alias that older callers and tests still import.
 LLMBatchResponseNoReason = LLMBatchResponseWithEvidence
 
 
@@ -235,17 +202,6 @@ class SecondStageDecision(BaseModel):
     reason: str = ""
 
 
-class EvolutionKey(BaseModel):
-    """Portable representation of one full evolution key artifact."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: MappingRequest
-    links: list[CandidateLink]
-    run_metadata: dict[str, Any] = Field(default_factory=dict)
-    schema_version: str = OUTPUT_SCHEMA_VERSION
-
-
 class RetrySettings(BaseModel):
     """Retry settings for transient LLM failures."""
 
@@ -276,15 +232,3 @@ class ReplaySettings(BaseModel):
 
     enabled: bool = False
     store_dir: str = ".adminlineage_replay"
-
-
-class RunMetadata(BaseModel):
-    """Metadata persisted alongside outputs."""
-
-    model_config = ConfigDict(extra="allow")
-
-    run_id: str
-    request: dict[str, Any]
-    counts: dict[str, Any]
-    warnings: list[str] = Field(default_factory=list)
-    schema_version: str = OUTPUT_SCHEMA_VERSION

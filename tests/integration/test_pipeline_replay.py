@@ -283,7 +283,7 @@ def test_pipeline_replay_round_trips_grounding_notes(tmp_path: Path):
     replay_store_dir = tmp_path / "shared-replay"
 
     live_client = GroundedReplayClient()
-    _, live_metadata = run_pipeline(
+    _, _ = run_pipeline(
         df_from,
         df_to,
         country="India",
