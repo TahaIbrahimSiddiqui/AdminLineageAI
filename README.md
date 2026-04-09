@@ -10,21 +10,24 @@ The package generates candidate matches between two datasets, asks Gemini to cho
   <img alt="This is an experimental utility. Treat these crosswalks as assistive outputs and cross-verify them, especially in important cases." src="https://img.shields.io/static/v1?label=This%20is%20an%20experimental%20utility.&message=Treat%20these%20crosswalks%20as%20assistive%20outputs%20and%20cross-verify%20them%2C%20especially%20in%20important%20cases.&color=red">
 </p>
 
-## Where It Helps
+## Possible use cases
 
-- Matching a scheme dataset from a website against a standard administrative list such as a census table. For example, one source may write `Paschimi Singhbhum` while another uses `West Singhbhum`. Plain fuzzy matching often misses cases like this unless you manually standardize prefixes and suffixes first. AI can do better because it has context, including that `paschim` in Hindi means `west`. The same kind of issue shows up across many widely spoken languages.
-- Handling administrative churn. Districts and other units are regularly split, merged, renamed, or grouped differently, and there is often no up-to-date public evolution list for newly created units.
-- Creating entirely new evolution crosswalks that do not already exist between two sources or two periods.
+Below are few possible scenarios where this package can be of assistance. Moreover, we would love to hear about other user experiences and use cases for this package.
 
-## Three Important Features
+- For instance, one has scheme dataset from a government scheme and need to match it against a standard administrative list such as a census table. The scheme source may write `Paschimi Singhbhum` while another uses `West Singhbhum`. Plain fuzzy matching will miss cases like this unless you manually standardize prefixes and suffixes first. While AI can do matching for this because it has context that `paschim` in Hindi means `west`. The same kind of issue shows up across many widely spoken languages.
+- Handling administrative churn. Districts and other units are regularly split, merged, renamed, or grouped differently, and there is often no up-to-date public evolution list for newly created units, the package does a wide google search and find possible predessor or sucessor for each administrative unit in the primary dataset
+- Creating entirely new evolution crosswalks that do not exist between two time period at an administrative level.  
 
-- Exact string handling plus selective pruning. Token costs can rise quickly, so the package looks for exact string hits first and lets you control later AI work with `string_exact_match_prune`. This behaviour is explained in more detail below.
-- Hierarchical matching with `exact_match`. If your data are nested, you can match names within exact scopes such as `country`, `state`, or `district`. For example, you can match district names within states inside a country. This works well, but the exact-match columns need to line up exactly across both datasets.
+## Important Features
+
+- The default setting of the package is set to have best results with minimal token cost. Please feel free to change them according to your needs.
+- To keep the token costs minimal, we do exact string match plus pruning of matching candidates on the primary side before first stage. 
+- Hierarchical matching with `exact_match`. If your data are nested, you can match names within exact scopes such as `country`, `state`, or `district`. For example, you can choose to match only district names within a states or subdistricts with a district. This works well, but the exact-match column string need to line up exactly across both datasets.
 - Replay and reproducibility. Academic pipelines often need to be rerun many times. With replay enabled, repeated semantic requests can reuse prior completed LLM work instead of calling the API again. The `seed` parameter helps keep request identity deterministic and makes reruns easier to reproduce.
 
 The supported live workflow in AdminLineageAI is:
 
-- Gemini `gemini-3.1-flash-lite-preview`
+- Compatible with any `gemini-3+` model
 - Google Search grounding enabled
 - strict JSON output from the model
 - user-controlled batching with automatic split fallback on failed multi-row requests
