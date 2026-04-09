@@ -137,7 +137,6 @@ flowchart TD
     H["AI matches remaining rows on primary side<br/>(Kanpur Rural, Ayodhya, Prayagraj)<br/>using grounded Gemini search<br/>"]
     I["AI matches Kanpur Dehat -> Kanpur Rural<br/>because it has context that 'dehat' means 'rural' in Hindi"]
     J{"Do Ayodhya or Prayagraj stay unmatched<br/>after first stage?"}
-    K["Produce output directly<br/>if first stage already resolved all rows"]
     L["Do intensive Gemini search of potential predecessor / successor of Ayodhya / Prayagraj<br/>if they were renamed, merged, split, or transferred"]
     M["If Gemini finds a potential predecessor / successor for that district<br/>match it with the global district list from the secondary side"]
     N["Write final evolution key<br/>Agra -> Agra<br/>Kanpur Dehat -> Kanpur Rural<br/>Faizabad -> Ayodhya<br/>Allahabad -> Prayagraj"]
@@ -161,10 +160,9 @@ flowchart TD
     E --> H
     H --> I
     I --> J
-    J -- "No" --> K
+    J -- "No" --> N
     J -- "Yes" --> L
     L --> M
-    K --> O
     A --> N
     B --> N
     M --> N
