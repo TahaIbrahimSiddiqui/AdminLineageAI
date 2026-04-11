@@ -167,6 +167,31 @@ flowchart TD
     N --> O
 ```
 
+## Evals Against Human Ground Truth
+
+You can score a materialized `evolution_key.csv` against a hand-built truth table. The package compares predicted link rows against normalized ground-truth pairs and reports precision, recall, and F1.
+
+The included `examples/data/sagy_ground_truth.csv` fixture is a deduplicated district-level version of the hand-built SAGY workbook. It keeps only `state_old`, `district_old`, `state_new`, and `district_new`, then removes repeats from the GP-level rows.
+
+```python
+import adminlineage
+
+eval_result = adminlineage.evaluate_crosswalk(
+    crosswalk="outputs/india_1951_2001_subdistrict/evolution_key.csv",
+    ground_truth="examples/data/sagy_ground_truth.csv",
+    truth_from_col="district_old",
+    truth_to_col="district_new",
+    truth_scope_map={"state_old": "state"},
+)
+
+eval_result["summary"]
+eval_result["false_negatives"].head()
+```
+
+If your truth table starts as Excel, load it with pandas first and pass the DataFrame directly. Package-managed path loading stays limited to CSV and Parquet.
+
+Precision is the share of predicted links that also appear in the human truth table. Recall is the share of human truth links that the crosswalk recovered. F1 combines both into one score.
+
 ## Optional CLI Workflow
 
 The CLI is useful when you want a saved YAML config for repeatable runs, but it is optional.
@@ -181,6 +206,7 @@ adminlineage export --input outputs/india_1951_2001_subdistrict/evolution_key.cs
 The package includes these example assets:
 
 - `examples/config/example.yml`
+- `examples/data/sagy_ground_truth.csv`
 - `examples/loaders/sample_loader.py`
 - `examples/adminlineage_gemini_3_1_flash_lite.ipynb`
 
@@ -189,6 +215,7 @@ The package includes these example assets:
 Public objects available from `import adminlineage`:
 
 - `build_evolution_key`
+- `evaluate_crosswalk`
 - `preview_plan`
 - `validate_inputs`
 - `export_crosswalk`
@@ -224,7 +251,7 @@ Optional arguments:
 | `string_exact_match_prune` | `str` | `none` | `none` keeps exact-string hits in later AI work, `from` removes matched source rows from AI work, `to` removes matched source and target rows from later AI work. |
 | `evidence` | `bool` | `False` | Adds a short evidence summary and includes the `evidence` column. |
 | `reason` | `bool` | `False` | Adds a longer explanation in the `reason` column. |
-| `model` | `str` | `gemini-3-flash-preview` | Gemini model name. |
+| `model` | `str` | `gemini-3.1-flash-lite-preview` | Gemini model name. |
 | `gemini_api_key_env` | `str` | `GEMINI_API_KEY` | Environment variable name used for the API key. |
 | `batch_size` | `int` | `5` | Maximum number of source rows per Gemini request. When a multi-row request fails, the pipeline retries in smaller batches. |
 | `max_candidates` | `int` | `6` | Candidate shortlist size per source row. |
@@ -307,6 +334,44 @@ Supported output formats:
 - `csv`
 - `parquet`
 - `jsonl`
+
+### `evaluate_crosswalk`
+
+Compare a materialized crosswalk against a human-maintained truth table.
+
+```python
+adminlineage.evaluate_crosswalk(
+    crosswalk="outputs/india_1951_2001_subdistrict/evolution_key.csv",
+    ground_truth="examples/data/sagy_ground_truth.csv",
+    truth_from_col="district_old",
+    truth_to_col="district_new",
+    truth_scope_map={"state_old": "state"},
+    predicted_from_col="from_canonical_name",
+    predicted_to_col="to_canonical_name",
+    predicted_merge_values=("both",),
+    normalize_strings=True,
+    drop_duplicates=True,
+)
+```
+
+Arguments:
+
+| Argument | Type | Default | Meaning |
+|---|---|---|---|
+| `crosswalk` | `pd.DataFrame \| str \| Path` | required | Materialized evolution key DataFrame or a CSV/Parquet path. |
+| `ground_truth` | `pd.DataFrame \| str \| Path` | required | Human truth table DataFrame or a CSV/Parquet path. |
+| `truth_from_col` | `str` | required | Earlier-period truth column. |
+| `truth_to_col` | `str` | required | Later-period truth column. |
+| `truth_scope_map` | `dict[str, str] \| None` | `None` | Optional mapping from truth scope columns to predicted crosswalk columns, for example `{\"state_old\": \"state\"}`. |
+| `predicted_from_col` | `str` | `from_canonical_name` | Predicted earlier-period column used in the comparison. |
+| `predicted_to_col` | `str` | `to_canonical_name` | Predicted later-period column used in the comparison. |
+| `predicted_merge_values` | `tuple[str, ...]` | `(\"both\",)` | Which crosswalk rows count as predicted links. |
+| `normalize_strings` | `bool` | `True` | Applies the package's canonical name normalization before comparison. |
+| `drop_duplicates` | `bool` | `True` | Deduplicates repeated link rows before scoring. |
+
+Return value: a dict with `summary`, `true_positives`, `false_positives`, and `false_negatives`.
+
+The three detailed outputs are pandas DataFrames indexed by the normalized comparison columns so you can inspect exact misses and extra links in notebooks.
 
 ### `get_output_schema_definition`
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .evals import evaluate_crosswalk as _evaluate_crosswalk
 from .export import export_crosswalk_file
 from .pipeline import preview_pipeline_plan, run_pipeline
 from .validation import validate_inputs_data
@@ -146,4 +147,33 @@ def export_crosswalk(
         input_path=input_path,
         output_format=output_format,
         output_path=output_path,
+    )
+
+
+def evaluate_crosswalk(
+    crosswalk: pd.DataFrame | str | Path,
+    ground_truth: pd.DataFrame | str | Path,
+    *,
+    truth_from_col: str,
+    truth_to_col: str,
+    truth_scope_map: dict[str, str] | None = None,
+    predicted_from_col: str = "from_canonical_name",
+    predicted_to_col: str = "to_canonical_name",
+    predicted_merge_values: tuple[str, ...] = ("both",),
+    normalize_strings: bool = True,
+    drop_duplicates: bool = True,
+) -> dict:
+    """Compare a materialized crosswalk against a human-maintained truth table."""
+
+    return _evaluate_crosswalk(
+        crosswalk,
+        ground_truth,
+        truth_from_col=truth_from_col,
+        truth_to_col=truth_to_col,
+        truth_scope_map=truth_scope_map,
+        predicted_from_col=predicted_from_col,
+        predicted_to_col=predicted_to_col,
+        predicted_merge_values=predicted_merge_values,
+        normalize_strings=normalize_strings,
+        drop_duplicates=drop_duplicates,
     )
