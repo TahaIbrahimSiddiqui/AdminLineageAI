@@ -167,6 +167,24 @@ flowchart TD
     N --> O
 ```
 
+## Hand Check Against SAGY Ground Truth
+
+To give a reader one concrete judgment call, I compared the notebook run at `outputs/adminlineage_notebook_flash_lite_grounded/india_2011_2025_district-name/evolution_key.csv` against the hand-coded workbook `C:\Users\Taha rice\Downloads\sagy_data_clean.xlsx`.
+
+This comparison uses the deduplicated district pairs from `Sheet1` with `state_old`, `district_old`, `state_new`, and `district_new`. State and district names were normalized before comparison. A row counts as a package-provided match only when the evolution key has a non-blank `to_name`. For each 2011 district in the hand mapping:
+
+- `aligns` means the evolution key points to the same 2025 district in the same state
+- `disagrees` means the evolution key points to a different 2025 district
+- `no match` means the evolution key does not provide any non-blank `to_name`
+
+| Outcome | Count | Share of 616 hand-coded district pairs |
+|---|---:|---:|
+| Aligns with SAGY hand mapping | 467 | 75.81% |
+| Disagrees with SAGY hand mapping | 0 | 0.00% |
+| Evolution key provides no 2025 match | 149 | 24.19% |
+
+Judgment call: this run was conservative rather than reckless. On the SAGY overlap, the rows where the evolution key did provide a 2025 match aligned with the hand mapping, but it still left about a quarter of the hand-coded district pairs unmatched. That makes the output easier to treat as an assistive crosswalk plus review artifact than as a fully complete replacement for manual checking.
+
 ## Optional CLI Workflow
 
 The CLI is useful when you want a saved YAML config for repeatable runs, but it is optional.
@@ -224,7 +242,7 @@ Optional arguments:
 | `string_exact_match_prune` | `str` | `none` | `none` keeps exact-string hits in later AI work, `from` removes matched source rows from AI work, `to` removes matched source and target rows from later AI work. |
 | `evidence` | `bool` | `False` | Adds a short evidence summary and includes the `evidence` column. |
 | `reason` | `bool` | `False` | Adds a longer explanation in the `reason` column. |
-| `model` | `str` | `gemini-3-flash-preview` | Gemini model name. |
+| `model` | `str` | `gemini-3.1-flash-lite-preview` | Gemini model name. |
 | `gemini_api_key_env` | `str` | `GEMINI_API_KEY` | Environment variable name used for the API key. |
 | `batch_size` | `int` | `5` | Maximum number of source rows per Gemini request. When a multi-row request fails, the pipeline retries in smaller batches. |
 | `max_candidates` | `int` | `6` | Candidate shortlist size per source row. |
