@@ -169,21 +169,21 @@ flowchart TD
 
 ## Hand Check Against SAGY Ground Truth
 
-To give a reader one concrete judgment call, I compared the notebook run at `outputs/adminlineage_notebook_flash_lite_grounded/india_2011_2025_district-name/evolution_key.csv` against the hand-coded workbook `C:\Users\Taha rice\Downloads\sagy_data_clean.xlsx`.
+To give a reader one concrete judgment call, this section compares the current notebook run at `outputs/adminlineage_notebook_flash_lite_grounded/india_2011_2025_district-name/evolution_key.csv` against the hand-coded workbook `C:\Users\Taha rice\Downloads\sagy_data_clean.xlsx`.
 
-This comparison uses the deduplicated district pairs from `Sheet1` with `state_old`, `district_old`, `state_new`, and `district_new`. State and district names were normalized before comparison. A row counts as a package-provided match only when the evolution key has a non-blank `to_name`. For each 2011 district in the hand mapping:
+The workbook is a human-made evolution key for a government scheme that was implemented nationally in India. Its `2025` side lists the scheme-specific districts, and its `2011` side lists the predecessor districts those scheme districts map back to. The comparison therefore asks: for each `district_2025` in the hand-coded table, does the evolution key recover the corresponding `district_2011`? Names were normalized before comparison. Spelling and transliteration-only differences were treated as aligns. A row counts as a package-provided match only when the evolution key has a non-blank `from_name`.
 
-- `aligns` means the evolution key points to the same 2025 district in the same state
-- `disagrees` means the evolution key points to a different 2025 district
-- `no match` means the evolution key does not provide any non-blank `to_name`
+- `aligns` means the evolution key points to the same 2011 district name
+- `disagrees` means the evolution key points to a different 2011 district
+- `no match` means the evolution key does not provide any non-blank `from_name`
 
-| Outcome | Count | Share of 616 hand-coded district pairs |
+| Outcome | Count | Share of 612 hand-coded district pairs |
 |---|---:|---:|
-| Aligns with SAGY hand mapping | 467 | 75.81% |
-| Disagrees with SAGY hand mapping | 0 | 0.00% |
-| Evolution key provides no 2025 match | 149 | 24.19% |
+| Aligns with SAGY hand mapping | 595 | 97.22% |
+| Disagrees with SAGY hand mapping | 11 | 1.80% |
+| Evolution key provides no 2011 match | 6 | 0.98% |
 
-Judgment call: this run was conservative rather than reckless. On the SAGY overlap, the rows where the evolution key did provide a 2025 match aligned with the hand mapping, but it still left about a quarter of the hand-coded district pairs unmatched. That makes the output easier to treat as an assistive crosswalk plus review artifact than as a fully complete replacement for manual checking.
+On this reversed hand check, the updated run lines up with the SAGY mapping most of the time and leaves only a small number of 2025 districts without any 2011 match. There are still some substantive disagreement cases, so the output is best used as an assistive crosswalk and review aid.
 
 ## Optional CLI Workflow
 
