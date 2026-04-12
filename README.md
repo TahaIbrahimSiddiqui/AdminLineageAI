@@ -167,11 +167,11 @@ flowchart TD
     N --> O
 ```
 
-## Hand Check Against SAGY Ground Truth
+## Hand Check Against Scheme Ground Truth
 
-To give a reader one concrete judgment call, this section compares the current notebook run at `outputs/adminlineage_notebook_flash_lite_grounded/india_2011_2025_district-name/evolution_key.csv` against the hand-coded workbook `C:\Users\Taha rice\Downloads\sagy_data_clean.xlsx`.
+This is a quick hand check against a human-made evolution key for a government scheme implemented nationally in India. The scheme side is `2025` districts, mapped back to their predecessor `2011` districts.
 
-The workbook is a human-made evolution key for a government scheme that was implemented nationally in India. Its `2025` side lists the scheme-specific districts, and its `2011` side lists the predecessor districts those scheme districts map back to. The comparison therefore asks: for each `district_2025` in the hand-coded table, does the evolution key recover the corresponding `district_2011`? Names were normalized before comparison. Spelling and transliteration-only differences were treated as aligns. A row counts as a package-provided match only when the evolution key has a non-blank `from_name`.
+The comparison is oriented from the scheme side: for each `district_2025` in the hand key, does the evolution key recover the expected `district_2011` predecessor? Names were normalized before comparison. Spelling and transliteration-only differences were treated as aligns. A row counts as a match only when the evolution key has a non-blank `from_name`.
 
 - `aligns` means the evolution key points to the same 2011 district name
 - `disagrees` means the evolution key points to a different 2011 district
@@ -179,11 +179,11 @@ The workbook is a human-made evolution key for a government scheme that was impl
 
 | Outcome | Count | Share of 612 hand-coded district pairs |
 |---|---:|---:|
-| Aligns with SAGY hand mapping | 595 | 97.22% |
-| Disagrees with SAGY hand mapping | 11 | 1.80% |
+| Aligns with scheme hand mapping | 595 | 97.22% |
+| Disagrees with scheme hand mapping | 11 | 1.80% |
 | Evolution key provides no 2011 match | 6 | 0.98% |
 
-On this reversed hand check, the updated run lines up with the SAGY mapping most of the time and leaves only a small number of 2025 districts without any 2011 match. There are still some substantive disagreement cases, so the output is best used as an assistive crosswalk and review aid.
+Takeaway: most scheme districts map back to the same 2011 predecessor as the hand key, a few disagree, and a small number have no match. Treat this as a sanity check, not a full audit.
 
 ## Optional CLI Workflow
 
