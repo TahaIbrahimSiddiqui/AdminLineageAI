@@ -38,8 +38,12 @@ Issues = "https://github.com/TahaIbrahimSiddiqui/AdminLineageAI/issues"
 io = ["pyarrow>=15.0"]
 dev = [
   "build>=1.2",
+  "mypy>=1.10",
+  "pandas-stubs>=2.2",
   "pytest>=8.0",
   "ruff>=0.5",
+  "twine>=5.1",
+  "types-PyYAML>=6.0",
   "vulture>=2.16",
 ]
 

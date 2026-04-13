@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias, cast
 
 import pandas as pd
 
@@ -25,6 +25,8 @@ from .llm import (
 )
 from .logging_utils import setup_logger
 from .models import (
+    BatchResponse,
+    BatchResponseModel,
     ExactStringPruneMode,
     MappingRequest,
     RequestRelationshipType,
@@ -62,6 +64,8 @@ from .validation import collapse_duplicate_match_keys, validate_inputs_data
 
 _MATCHED_LINK_TYPES = {"rename", "split", "merge", "transfer"}
 _VALID_RELATIONSHIPS = set(RELATIONSHIP_TYPES)
+_GLOBAL_SCOPE_KEY = "__all__"
+ScopeKey: TypeAlias = tuple[Any, ...] | str
 
 
 def _default_run_name(country: str, year_from: int | str, year_to: int | str, map_col: str) -> str:
@@ -254,28 +258,29 @@ def _build_candidate_maps(
     *,
     exact_match: list[str],
     max_candidates: int,
-) -> tuple[dict[str, list[dict[str, Any]]], dict[str, tuple[Any, ...] | str]]:
-    to_groups: dict[tuple[Any, ...] | str, list[Any]] = {}
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, ScopeKey]]:
+    to_groups: dict[ScopeKey, list[Any]] = {}
     to_scope_cols = _normalized_scope_cols("to", exact_match)
     from_scope_cols = _normalized_scope_cols("from", exact_match)
     if exact_match:
         for key, group in df_to_work.groupby(to_scope_cols, dropna=False):
             to_groups[_normalize_group_key(key)] = prepare_target_records(group)
     else:
-        to_groups["__all__"] = prepare_target_records(df_to_work)
+        to_groups[_GLOBAL_SCOPE_KEY] = prepare_target_records(df_to_work)
 
     candidate_map: dict[str, list[dict[str, Any]]] = {}
-    group_map: dict[str, tuple[Any, ...] | str] = {}
+    group_map: dict[str, ScopeKey] = {}
     column_index = {name: idx for idx, name in enumerate(df_from_work.columns)}
 
     for row in df_from_work.itertuples(index=False, name=None):
+        group_key: ScopeKey
         if exact_match:
             group_key = tuple(
                 _normalize_group_value(row[column_index[col]])
                 for col in from_scope_cols
             )
         else:
-            group_key = "__all__"
+            group_key = _GLOBAL_SCOPE_KEY
 
         candidate_map[row[column_index["_from_key"]]] = generate_shortlist_from_records(
             row[column_index["_from_tokens"]],
@@ -293,9 +298,9 @@ def _scope_key_for_row(
     *,
     column_index: dict[str, int],
     scope_cols: list[str],
-) -> tuple[Any, ...] | str:
+) -> ScopeKey:
     if not scope_cols:
-        return "__all__"
+        return _GLOBAL_SCOPE_KEY
     return tuple(_normalize_group_value(row[column_index[col]]) for col in scope_cols)
 
 
@@ -320,16 +325,17 @@ def _resolve_exact_string_matches(
     to_index = {name: idx for idx, name in enumerate(df_to_work.columns)}
     from_index = {name: idx for idx, name in enumerate(df_from_work.columns)}
 
-    to_key_by_scope_and_name: dict[tuple[Any, ...] | str, dict[str, str]] = {}
+    to_key_by_scope_and_name: dict[ScopeKey, dict[str, str]] = {}
     # Exact string hits are cheap and deterministic, so settle them before asking the model.
     for row in df_to_work.itertuples(index=False, name=None):
+        scope_key: ScopeKey
         if exact_match:
             scope_key = tuple(
                 _normalize_group_value(row[to_index[col]])
                 for col in to_scope_cols
             )
         else:
-            scope_key = "__all__"
+            scope_key = _GLOBAL_SCOPE_KEY
         scope_bucket = to_key_by_scope_and_name.setdefault(scope_key, {})
         scope_bucket[row[to_index["_to_canonical_name"]]] = row[to_index["_to_key"]]
 
@@ -1041,7 +1047,7 @@ def run_pipeline(
         len(pending_from_keys),
     )
 
-    response_model = get_batch_response_model(
+    response_model: BatchResponseModel = get_batch_response_model(
         include_reason=reason,
         include_evidence=evidence,
     )
@@ -1421,7 +1427,7 @@ def run_pipeline(
                 seed=seed,
                 enable_google_search=grounding_enabled,
             )
-            parsed = response_model.model_validate(raw_response)
+            parsed = cast(BatchResponse, response_model.model_validate(raw_response))
             by_from = {decision.from_key: decision for decision in parsed.decisions}
 
             for item in batch_items:
@@ -2015,9 +2021,8 @@ def run_pipeline(
                     if secondary_key in shortlisted_keys
                 ]
                 decision_payload = decision.model_dump()
-                decision_payload["selected_secondary_keys"] = list(
-                    dict.fromkeys(filtered_secondary_keys)
-                )
+                selected_secondary_keys = list(dict.fromkeys(filtered_secondary_keys))
+                decision_payload["selected_secondary_keys"] = selected_secondary_keys
                 record = {
                     "run_id": run_id,
                     "timestamp": now_iso(),
@@ -2030,7 +2035,7 @@ def run_pipeline(
                     "decision": decision_payload,
                     "rewrite_applied": _second_stage_link_is_matched(
                         str(decision_payload.get("link_type", "unknown")),
-                        decision_payload["selected_secondary_keys"],
+                        selected_secondary_keys,
                     ),
                 }
                 append_jsonl(second_stage_results_path, record)
@@ -2041,7 +2046,7 @@ def run_pipeline(
                     run_id,
                     primary_side,
                     primary_key,
-                    len(decision_payload["selected_secondary_keys"]),
+                    len(selected_secondary_keys),
                     record["rewrite_applied"],
                 )
             except Exception as exc:

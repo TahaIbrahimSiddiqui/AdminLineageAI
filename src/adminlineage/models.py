@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -165,8 +165,23 @@ class LLMBatchResponseWithEvidenceAndReason(BaseModel):
 # Retain the historical alias that older callers and tests still import.
 LLMBatchResponseNoReason = LLMBatchResponseWithEvidence
 
+BatchResponse: TypeAlias = (
+    LLMBatchResponseBare
+    | LLMBatchResponseWithEvidence
+    | LLMBatchResponseWithReason
+    | LLMBatchResponseWithEvidenceAndReason
+)
+BatchResponseModel: TypeAlias = (
+    type[LLMBatchResponseBare]
+    | type[LLMBatchResponseWithEvidence]
+    | type[LLMBatchResponseWithReason]
+    | type[LLMBatchResponseWithEvidenceAndReason]
+)
 
-def get_batch_response_model(*, include_reason: bool, include_evidence: bool) -> type[BaseModel]:
+
+def get_batch_response_model(
+    *, include_reason: bool, include_evidence: bool
+) -> BatchResponseModel:
     """Return the strict response model for the requested reason mode."""
 
     if include_evidence and include_reason:

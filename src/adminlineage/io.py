@@ -77,6 +77,8 @@ def load_frames(config: RunConfig, *, cwd: str | Path | None = None) -> LoadedFr
     data_cfg = config.data
     base_dir = config.source_dir or (Path(cwd) if cwd is not None else Path.cwd())
     if data_cfg.mode == "files":
+        if data_cfg.from_path is None or data_cfg.to_path is None:
+            raise ValueError("data.from_path and data.to_path are required when mode=files")
         from_path = _resolve_path(data_cfg.from_path, base_dir=base_dir)
         to_path = _resolve_path(data_cfg.to_path, base_dir=base_dir)
         df_from = read_dataframe(from_path)
@@ -92,6 +94,8 @@ def load_frames(config: RunConfig, *, cwd: str | Path | None = None) -> LoadedFr
         )
 
     params = dict(data_cfg.params)
+    if data_cfg.callable is None:
+        raise ValueError("data.callable is required when mode=python_hook")
     df_from, df_to = _load_via_hook(
         data_cfg.callable,
         params,
