@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from adminlineage.clients import MockClient, TransientLLMError
 from adminlineage.io import read_jsonl
-from adminlineage.llm_types import BaseLLMClient
+from adminlineage.llm import MockClient, TransientLLMError
+from adminlineage.llm.base import BaseLLMClient
 from adminlineage.pipeline import run_pipeline
 
 

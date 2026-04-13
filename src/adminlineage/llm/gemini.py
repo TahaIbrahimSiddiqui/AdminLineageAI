@@ -11,18 +11,17 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .gemini_transport import GeminiTransport
-from .llm_cache import SQLiteCache
-from .llm_retry import retry_call
-from .llm_types import (
+from ..prompts import build_repair_prompt
+from ..schema import LINK_TYPES, PROMPT_SCHEMA_VERSION, RELATIONSHIP_TYPES
+from ..utils import load_env_file, now_iso
+from .base import (
     BaseLLMClient,
     LLMServiceError,
     QuotaExceededLLMError,
     TransientLLMError,
 )
-from .prompts import build_repair_prompt
-from .schema import LINK_TYPES, PROMPT_SCHEMA_VERSION, RELATIONSHIP_TYPES
-from .utils import load_env_file, now_iso
+from .cache import SQLiteCache
+from .retry import retry_call
 
 _VALID_LINK_TYPES = set(LINK_TYPES)
 _VALID_RELATIONSHIP_TYPES = set(RELATIONSHIP_TYPES)
@@ -87,15 +86,23 @@ class GeminiClient(BaseLLMClient):
         schema: Any | None = None,
         structured_output: bool = True,
     ) -> Any:
-        return GeminiTransport.build_generate_config(
-            genai_types=genai_types,
-            temperature=temperature,
-            seed=seed,
-            enable_google_search=enable_google_search,
-            schema=schema,
-            structured_output=structured_output,
-            response_schema_builder=GeminiClient._response_json_schema,
-        )
+        tools = []
+        if enable_google_search:
+            tools.append(genai_types.Tool(google_search=genai_types.GoogleSearch()))
+
+        config_kwargs: dict[str, Any] = {
+            "temperature": temperature,
+            "seed": seed,
+        }
+        if tools:
+            config_kwargs["tools"] = tools
+        if structured_output:
+            config_kwargs["response_mime_type"] = "application/json"
+            if schema is not None:
+                config_kwargs["response_json_schema"] = GeminiClient._response_json_schema(
+                    schema
+                )
+        return genai_types.GenerateContentConfig(**config_kwargs)
 
     @classmethod
     def _response_json_schema(cls, schema: Any) -> Any:
@@ -183,7 +190,18 @@ class GeminiClient(BaseLLMClient):
 
     @staticmethod
     def _extract_response_text(response: Any) -> str:
-        return GeminiTransport.extract_response_text(response)
+        text = getattr(response, "text", None)
+        if text:
+            return str(text).strip()
+
+        candidates = getattr(response, "candidates", None) or []
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) or []
+            text_parts = [str(part.text).strip() for part in parts if getattr(part, "text", None)]
+            if text_parts:
+                return "\n".join(text_parts).strip()
+        return ""
 
     @classmethod
     def _classify_provider_error(cls, exc: Exception) -> LLMServiceError:
@@ -287,11 +305,20 @@ class GeminiClient(BaseLLMClient):
 
     @staticmethod
     def _http_options(timeout_seconds: int | None) -> dict[str, Any] | None:
-        return GeminiTransport.http_options(timeout_seconds)
+        if timeout_seconds is None:
+            return None
+        return {"timeout": int(timeout_seconds * 1000)}
 
     @classmethod
     def _sdk_http_options(cls, genai_types: Any, timeout_seconds: int | None) -> Any | None:
-        return GeminiTransport.sdk_http_options(genai_types, timeout_seconds)
+        http_options = cls._http_options(timeout_seconds)
+        if http_options is None:
+            return None
+
+        http_options_cls = getattr(genai_types, "HttpOptions", None)
+        if http_options_cls is None:
+            return http_options
+        return http_options_cls(**http_options)
 
     @classmethod
     def _parse_json_payload(cls, raw_text: str) -> Any:
@@ -334,18 +361,7 @@ class GeminiClient(BaseLLMClient):
             raise last_error
         raise json.JSONDecodeError("No JSON object found in Gemini response", raw_text, 0)
 
-    def _read_api_key(self) -> str:
-        if not self._env_loaded:
-            load_env_file(self.env_search_dir)
-            self._env_loaded = True
-        api_key = os.getenv(self.api_key_env)
-        if not api_key:
-            raise LLMServiceError(
-                f"Missing Gemini API key in environment variable {self.api_key_env}"
-            )
-        return api_key
-
-    def _call_generation(
+    def _call_model(
         self,
         prompt: str,
         *,
@@ -353,39 +369,66 @@ class GeminiClient(BaseLLMClient):
         temperature: float,
         seed: int,
         enable_google_search: bool,
-        schema: Any | None,
-        structured_output: bool,
-        grounded_attempt_cap: int,
+        schema: Any | None = None,
     ) -> str:
-        api_key = self._read_api_key()
-        transport = GeminiTransport(
-            api_key=api_key,
-            request_timeout_seconds=self.request_timeout_seconds,
+        if not self._env_loaded:
+            # Notebook runs often start outside the repo root,
+            # so look up the caller's .env once here.
+            load_env_file(self.env_search_dir)
+            self._env_loaded = True
+        api_key = os.getenv(self.api_key_env)
+        if not api_key:
+            raise LLMServiceError(
+                f"Missing Gemini API key in environment variable {self.api_key_env}"
+            )
+
+        try:
+            from google import genai
+        except Exception as exc:
+            raise LLMServiceError(
+                "google-genai is required for GeminiClient. Install dependency 'google-genai'."
+            ) from exc
+        genai_types = getattr(genai, "types", None)
+        if genai_types is None:
+            raise LLMServiceError("google-genai types are unavailable in the installed SDK.")
+
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        http_options = self._sdk_http_options(genai_types, self.request_timeout_seconds)
+        if http_options is not None:
+            try:
+                client = genai.Client(http_options=http_options, **client_kwargs)
+            except TypeError as exc:
+                if "http_options" not in str(exc):
+                    raise
+                client = genai.Client(**client_kwargs)
+        else:
+            client = genai.Client(**client_kwargs)
+        config = self._build_generate_config(
+            genai_types=genai_types,
+            temperature=temperature,
+            seed=seed,
+            enable_google_search=enable_google_search,
+            schema=schema,
+            structured_output=True,
         )
 
         def _invoke() -> str:
             try:
                 self._respect_request_spacing()
-                text = transport.generate_text(
-                    prompt=prompt,
+                response = client.models.generate_content(
                     model=model,
-                    temperature=temperature,
-                    seed=seed,
-                    enable_google_search=enable_google_search,
-                    schema=schema,
-                    structured_output=structured_output,
-                    response_schema_builder=self._response_json_schema,
+                    contents=prompt,
+                    config=config,
                 )
-            except LLMServiceError:
-                raise
             except Exception as exc:
                 raise self._classify_provider_error(exc) from exc
+            text = self._extract_response_text(response)
             if not text:
                 raise TransientLLMError("Gemini returned an empty response")
             return text
 
         max_attempts = (
-            min(self.max_attempts, grounded_attempt_cap)
+            min(self.max_attempts, _MAX_GROUNDED_JSON_ATTEMPTS)
             if enable_google_search
             else self.max_attempts
         )
@@ -399,27 +442,6 @@ class GeminiClient(BaseLLMClient):
             retry_exceptions=(TransientLLMError,),
         )
 
-    def _call_model(
-        self,
-        prompt: str,
-        *,
-        model: str,
-        temperature: float,
-        seed: int,
-        enable_google_search: bool,
-        schema: Any | None = None,
-    ) -> str:
-        return self._call_generation(
-            prompt,
-            model=model,
-            temperature=temperature,
-            seed=seed,
-            enable_google_search=enable_google_search,
-            schema=schema,
-            structured_output=True,
-            grounded_attempt_cap=_MAX_GROUNDED_JSON_ATTEMPTS,
-        )
-
     def _call_text_model(
         self,
         prompt: str,
@@ -429,15 +451,73 @@ class GeminiClient(BaseLLMClient):
         seed: int,
         enable_google_search: bool,
     ) -> str:
-        return self._call_generation(
-            prompt,
-            model=model,
+        if not self._env_loaded:
+            load_env_file(self.env_search_dir)
+            self._env_loaded = True
+        api_key = os.getenv(self.api_key_env)
+        if not api_key:
+            raise LLMServiceError(
+                f"Missing Gemini API key in environment variable {self.api_key_env}"
+            )
+
+        try:
+            from google import genai
+        except Exception as exc:
+            raise LLMServiceError(
+                "google-genai is required for GeminiClient. Install dependency 'google-genai'."
+            ) from exc
+        genai_types = getattr(genai, "types", None)
+        if genai_types is None:
+            raise LLMServiceError("google-genai types are unavailable in the installed SDK.")
+
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        http_options = self._sdk_http_options(genai_types, self.request_timeout_seconds)
+        if http_options is not None:
+            try:
+                client = genai.Client(http_options=http_options, **client_kwargs)
+            except TypeError as exc:
+                if "http_options" not in str(exc):
+                    raise
+                client = genai.Client(**client_kwargs)
+        else:
+            client = genai.Client(**client_kwargs)
+
+        config = self._build_generate_config(
+            genai_types=genai_types,
             temperature=temperature,
             seed=seed,
             enable_google_search=enable_google_search,
-            schema=None,
             structured_output=False,
-            grounded_attempt_cap=_MAX_GROUNDED_TEXT_ATTEMPTS,
+        )
+
+        def _invoke() -> str:
+            try:
+                self._respect_request_spacing()
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=config,
+                )
+            except Exception as exc:
+                raise self._classify_provider_error(exc) from exc
+            text = self._extract_response_text(response)
+            if not text:
+                raise TransientLLMError("Gemini returned an empty response")
+            return text
+
+        max_attempts = (
+            min(self.max_attempts, _MAX_GROUNDED_TEXT_ATTEMPTS)
+            if enable_google_search
+            else self.max_attempts
+        )
+
+        return retry_call(
+            _invoke,
+            max_attempts=max_attempts,
+            base_delay_seconds=self.base_delay_seconds,
+            max_delay_seconds=self.max_delay_seconds,
+            jitter_seconds=self.jitter_seconds,
+            retry_exceptions=(TransientLLMError,),
         )
 
     @staticmethod

@@ -6,9 +6,9 @@ import types
 import pytest
 from pydantic import BaseModel
 
-import adminlineage.gemini_client as gemini_module
-from adminlineage.gemini_client import GeminiClient
-from adminlineage.llm_types import QuotaExceededLLMError
+import adminlineage.llm.gemini as gemini_module
+from adminlineage.llm.base import QuotaExceededLLMError
+from adminlineage.llm.gemini import GeminiClient
 from adminlineage.models import LLMBatchResponseNoReason
 
 

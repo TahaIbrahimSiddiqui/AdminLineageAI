@@ -8,7 +8,7 @@ import pytest
 
 import adminlineage.cli as cli_module
 from adminlineage.cli import main
-from adminlineage.clients import MockClient
+from adminlineage.llm import MockClient
 
 
 class TrackingMockClient(MockClient):

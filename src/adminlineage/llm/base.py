@@ -1,4 +1,4 @@
-"""Provider-facing LLM interfaces and shared exceptions."""
+"""Abstract LLM client interface."""
 
 from __future__ import annotations
 
@@ -47,4 +47,4 @@ class TransientLLMError(LLMServiceError):
 
 
 class QuotaExceededLLMError(LLMServiceError):
-    """Raised when provider quota or billing limits are exhausted."""
+    """Raised when the provider rejects calls because billing or quota is exhausted."""

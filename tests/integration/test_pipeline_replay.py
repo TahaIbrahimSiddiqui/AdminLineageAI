@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from adminlineage.clients import MockClient
 from adminlineage.io import read_jsonl
-from adminlineage.llm_types import BaseLLMClient
+from adminlineage.llm import MockClient
+from adminlineage.llm.base import BaseLLMClient
 from adminlineage.pipeline import run_pipeline
 
 

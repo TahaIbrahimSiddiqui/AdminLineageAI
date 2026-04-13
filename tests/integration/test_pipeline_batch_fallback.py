@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from pydantic import BaseModel
 
-from adminlineage.llm_types import BaseLLMClient, QuotaExceededLLMError, TransientLLMError
+from adminlineage.llm.base import BaseLLMClient, QuotaExceededLLMError, TransientLLMError
 from adminlineage.pipeline import run_pipeline
 from adminlineage.schema import normalize_nullable_output_columns
 

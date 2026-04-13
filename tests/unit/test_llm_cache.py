@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from adminlineage.llm_cache import SQLiteCache
+from adminlineage.llm.cache import SQLiteCache
 
 
 def test_cache_separates_temperature_and_grounding_settings(tmp_path):

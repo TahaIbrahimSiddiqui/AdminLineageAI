@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .utils import ensure_dir, stable_hash
+from ..utils import ensure_dir, stable_hash
 
 
 class SQLiteCache:

@@ -8,7 +8,7 @@ import pandas as pd
 from pydantic import BaseModel
 
 from adminlineage.io import read_jsonl
-from adminlineage.llm_types import BaseLLMClient
+from adminlineage.llm.base import BaseLLMClient
 from adminlineage.pipeline import run_pipeline
 
 
