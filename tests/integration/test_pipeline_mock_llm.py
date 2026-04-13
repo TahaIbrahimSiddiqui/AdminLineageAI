@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from adminlineage.llm import MockClient
+from adminlineage.clients import MockClient
 from adminlineage.pipeline import preview_pipeline_plan, run_pipeline
 
 

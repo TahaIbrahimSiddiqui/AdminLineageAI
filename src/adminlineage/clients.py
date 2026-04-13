@@ -1,20 +1,20 @@
-"""LLM client implementations."""
+"""Client exports for semantic and test-time model calls."""
 
-from .base import (
+from .gemini_client import GeminiClient
+from .llm_cache import SQLiteCache
+from .llm_types import (
     BaseLLMClient,
     LLMServiceError,
     QuotaExceededLLMError,
     TransientLLMError,
 )
-from .cache import SQLiteCache
-from .gemini import GeminiClient
-from .mock import MockClient
+from .mock_client import MockClient
 
 __all__ = [
     "BaseLLMClient",
     "LLMServiceError",
-    "QuotaExceededLLMError",
     "TransientLLMError",
+    "QuotaExceededLLMError",
     "SQLiteCache",
     "GeminiClient",
     "MockClient",

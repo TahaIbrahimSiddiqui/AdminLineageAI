@@ -7,8 +7,8 @@ from typing import Any
 import pandas as pd
 from pydantic import BaseModel
 
-from adminlineage.llm.base import BaseLLMClient
-from adminlineage.llm.gemini import GeminiClient
+from adminlineage.gemini_client import GeminiClient
+from adminlineage.llm_types import BaseLLMClient
 from adminlineage.pipeline import run_pipeline
 
 

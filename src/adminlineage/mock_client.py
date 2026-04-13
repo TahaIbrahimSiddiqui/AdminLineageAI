@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .base import BaseLLMClient, LLMServiceError
+from .llm_types import BaseLLMClient, LLMServiceError
 
 
 class MockClient(BaseLLMClient):
@@ -103,7 +103,7 @@ class MockClient(BaseLLMClient):
         *,
         enable_google_search: bool = False,
     ) -> str:
-        _ = (model, temperature, seed, enable_google_search)
+        _ = (prompt, model, temperature, seed, enable_google_search)
         self.calls += 1
         return (
             "Grounding notes: shortlist verification remains inconclusive in mock mode. "

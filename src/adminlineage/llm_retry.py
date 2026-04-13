@@ -1,4 +1,4 @@
-"""Retry helpers for transient LLM errors."""
+"""Retry helpers for transient LLM failures."""
 
 from __future__ import annotations
 

@@ -7,10 +7,10 @@ import json
 import sys
 from pathlib import Path
 
+from .clients import MockClient
 from .config import load_config
 from .export import export_crosswalk_file
 from .io import load_frames
-from .llm import MockClient
 from .pipeline import preview_pipeline_plan, run_pipeline
 from .validation import validate_inputs_data
 

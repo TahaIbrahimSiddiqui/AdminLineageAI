@@ -39,13 +39,19 @@
      - `run_metadata.json`
      - `run.log`
 
-## LLM Abstraction
+## LLM Runtime Structure
 
-- `BaseLLMClient.generate_json(...)`
-- `GeminiClient` for production runs
-- `MockClient` for deterministic tests
+- `llm_types.py` defines provider interfaces and shared error types.
+- `gemini_transport.py` is a direct `google-genai` transport layer for request construction and response extraction.
+- `gemini_client.py` holds retry, schema-validation, fallback, and repair policy around that transport.
+- `mock_client.py` is used for deterministic tests.
 
 The Gemini client can load a local `.env` file before reading the configured API key environment variable. It does not override environment variables that are already set.
+
+## Pipeline Module Split
+
+- `pipeline.py` orchestrates request identity, replay, artifacts, and metadata.
+- `pipeline_stages.py` owns stage execution for first-pass adjudication, second-stage rescue, and row materialization.
 
 ## Prompt Contract
 
