@@ -1,6 +1,6 @@
-# AdminLineageAI
+# adminlineage
 
-AdminLineageAI makes crosswalks between administrative locations such as districts (ADM2), subdistricts (ADM3), states (ADM1), and countries (ADM0) across datasets that may come from completely different sources and different periods. It uses AI to compare likely matches, reason over spelling variants and language-specific forms, administrative split/merges/renames and produce a usable crosswalk plus review artifacts.
+`adminlineage` makes crosswalks between administrative locations such as districts (ADM2), subdistricts (ADM3), states (ADM1), and countries (ADM0) across datasets that may come from completely different sources and different periods. It uses AI to compare likely matches, reason over spelling variants and language-specific forms, administrative split/merges/renames and produce a usable crosswalk plus review artifacts.
 
 Matching administrative units by hand is labour-intensive work. Through this package, we hope to reduce the manual work of matching administrative units between datasets while still keeping a clear review trail and reproducibility.
 
@@ -196,7 +196,7 @@ adminlineage run --config examples/config/example.yml
 adminlineage export --input outputs/india_1951_2001_subdistrict/evolution_key.csv --format jsonl
 ```
 
-The package includes these example assets:
+The repository includes these example assets:
 
 - `examples/config/example.yml`
 - `examples/loaders/sample_loader.py`

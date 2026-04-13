@@ -87,7 +87,8 @@ def normalize_nullable_output_columns(crosswalk: pd.DataFrame) -> pd.DataFrame:
         if column not in normalized.columns:
             continue
         series = normalized[column].astype(object)
-        normalized[column] = series.where(series.notna(), None)
+        series.loc[series.isna()] = None
+        normalized[column] = series
     return normalized
 
 

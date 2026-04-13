@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from .export import export_crosswalk_file
+from .models import ExactStringPruneMode, RequestRelationshipType
 from .pipeline import preview_pipeline_plan, run_pipeline
 from .validation import validate_inputs_data
 
@@ -24,8 +25,8 @@ def build_evolution_key(
     id_col_from: str | None = None,
     id_col_to: str | None = None,
     extra_context_cols: list[str] | None = None,
-    relationship: str = "auto",
-    string_exact_match_prune: str = "none",
+    relationship: RequestRelationshipType = "auto",
+    string_exact_match_prune: ExactStringPruneMode = "none",
     evidence: bool = False,
     reason: bool = False,
     model: str = "gemini-3.1-flash-lite-preview",
@@ -87,7 +88,7 @@ def preview_plan(
     id_col_from: str | None = None,
     id_col_to: str | None = None,
     extra_context_cols: list[str] | None = None,
-    string_exact_match_prune: str = "none",
+    string_exact_match_prune: ExactStringPruneMode = "none",
     max_candidates: int = 6,
 ) -> dict:
     """Preview grouping and candidate-generation plan without LLM calls."""

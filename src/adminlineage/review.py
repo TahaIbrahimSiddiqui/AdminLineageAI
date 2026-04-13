@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 import pandas as pd
@@ -13,7 +14,8 @@ def coverage_summary(crosswalk: pd.DataFrame, exact_match: list[str]) -> dict[st
     if crosswalk.empty:
         return {}
 
-    grouped = {}
+    grouped: dict[str, dict[str, int]] = {}
+    group_iter: Iterable[tuple[Any, pd.DataFrame]]
     if exact_match:
         group_iter = crosswalk.groupby(exact_match, dropna=False)
     else:
