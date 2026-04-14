@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "adminlineage"
-version = "0.2.0"
+version = "0.2.1"
 description = "Build administrative evolution keys across time with exact-match constrained Gemini adjudication"
 readme = "README.md"
 requires-python = ">=3.10"

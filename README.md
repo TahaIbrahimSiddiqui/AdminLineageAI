@@ -8,6 +8,21 @@ The package generates candidate matches between two datasets, asks Gemini to cho
 
 Published package: [adminlineage on PyPI](https://pypi.org/project/adminlineage/)
 
+## PyPI Release Workflow
+
+The repository includes a GitHub Actions publish workflow at `.github/workflows/publish.yml`.
+
+The intended release flow is:
+
+- bump the package version in `pyproject.toml` and `src/adminlineage/__init__.py`
+- push that change to `main`
+- let GitHub Actions build the wheel and source distribution
+- publish to PyPI through trusted publishing when that version is not already live
+
+Normal pushes to `main` do not fail just because PyPI already has the current version. The workflow checks the package version first and skips publishing when the same version is already present on PyPI.
+
+To make this work, the PyPI project needs a trusted publisher configured for this repository, workflow file, and the GitHub environment named `pypi`.
+
 <p align="center">
   <img alt="This is an experimental utility. Treat these crosswalks as assistive outputs and cross-verify them, especially in important cases." src="https://img.shields.io/static/v1?label=This%20is%20an%20experimental%20utility.&message=Treat%20these%20crosswalks%20as%20assistive%20outputs%20and%20cross-verify%20them%2C%20especially%20in%20important%20cases.&color=red">
 </p>
@@ -607,7 +622,7 @@ If you use AdminLineageAI in published work, please cite the package and briefly
 
 Suggested software citation:
 
-Siddiqui, T. I., Vetharenian Hari., Tariq. A. (2026). *AdminLineageAI* (Version 0.2.0) [Python package]. [https://pypi.org/project/adminlineage/](https://pypi.org/project/adminlineage/)
+Siddiqui, T. I., and Vetharenian Hari. (2026). *AdminLineageAI* (Version 0.2.1) [Python package]. [https://pypi.org/project/adminlineage/](https://pypi.org/project/adminlineage/)
 
 If the workflow matters for interpretation, report the key settings in your methods or appendix:
 
