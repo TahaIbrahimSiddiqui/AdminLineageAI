@@ -600,7 +600,6 @@ The most useful issue reports include:
 - `run_metadata.json`, and when relevant `links_raw.jsonl`, `grounding_notes.jsonl`, and `second_stage_results.jsonl`
 - the traceback or log excerpt if the run failed
 
-If the issue is about a wrong or missing administrative match, it helps to include the exact district names you expected to align, the exact scope columns used, and whether the disagreement is a spelling difference, a rename, a merge, a split, or something else.
 
 ## Citation
 
@@ -608,7 +607,7 @@ If you use AdminLineageAI in published work, please cite the package and briefly
 
 Suggested software citation:
 
-Siddiqui, T. I., and Vetharenian Hari. (2026). *AdminLineageAI* (Version 0.2.0) [Python package]. [https://pypi.org/project/adminlineage/](https://pypi.org/project/adminlineage/)
+Siddiqui, T. I., Vetharenian Hari., Tariq. A. (2026). *AdminLineageAI* (Version 0.2.0) [Python package]. [https://pypi.org/project/adminlineage/](https://pypi.org/project/adminlineage/)
 
 If the workflow matters for interpretation, report the key settings in your methods or appendix:
 
