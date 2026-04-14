@@ -1,0 +1,109 @@
+name: Publish To PyPI
+
+# This workflow expects a PyPI Trusted Publisher that points to this repository,
+# this workflow file, and the GitHub environment named `pypi`.
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: pypi-publish-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      package_name: ${{ steps.release.outputs.package_name }}
+      version: ${{ steps.release.outputs.version }}
+      should_publish: ${{ steps.release.outputs.should_publish }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check PyPI release status
+        id: release
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
+          package_name = project["name"]
+          version = project["version"]
+          exists = False
+          url = f"https://pypi.org/pypi/{package_name}/{version}/json"
+
+          try:
+              with urllib.request.urlopen(url, timeout=20):
+                  exists = True
+          except urllib.error.HTTPError as exc:
+              if exc.code != 404:
+                  raise
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
+              fh.write(f"package_name={package_name}\n")
+              fh.write(f"version={version}\n")
+              fh.write(f"should_publish={'false' if exists else 'true'}\n")
+
+          if exists:
+              print(f"{package_name} {version} is already on PyPI. Skipping publish.")
+          else:
+              print(f"{package_name} {version} is not on PyPI yet. Building for publish.")
+          PY
+
+      - name: Install build tooling
+        if: steps.release.outputs.should_publish == 'true'
+        run: python -m pip install --upgrade build twine
+
+      - name: Build distributions
+        if: steps.release.outputs.should_publish == 'true'
+        run: python -m build
+
+      - name: Check distributions
+        if: steps.release.outputs.should_publish == 'true'
+        run: python -m twine check dist/*
+
+      - name: Upload distributions
+        if: steps.release.outputs.should_publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/*
+
+      - name: Skip publish
+        if: steps.release.outputs.should_publish != 'true'
+        run: echo "No publish needed for version ${{ steps.release.outputs.version }}."
+
+  publish:
+    needs: build
+    if: needs.build.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/adminlineage/
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

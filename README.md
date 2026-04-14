@@ -6,6 +6,8 @@ Matching administrative units by hand is labour-intensive work. Through this pac
 
 The package generates candidate matches between two datasets, asks Gemini to choose among them, and writes a crosswalk plus review artifacts. It outputs a final evolution key plus review files as CSV and Parquet.
 
+Published package: [adminlineage on PyPI](https://pypi.org/project/adminlineage/)
+
 <p align="center">
   <img alt="This is an experimental utility. Treat these crosswalks as assistive outputs and cross-verify them, especially in important cases." src="https://img.shields.io/static/v1?label=This%20is%20an%20experimental%20utility.&message=Treat%20these%20crosswalks%20as%20assistive%20outputs%20and%20cross-verify%20them%2C%20especially%20in%20important%20cases.&color=red">
 </p>
@@ -583,8 +585,37 @@ output:
 
 Those are the current defaults. Change them when you need replay, evidence, stricter scoping, or different review thresholds.
 
+## Reporting Issues
+
+If you run into a bug, a broken match, or a confusing output, please open an issue on [GitHub](https://github.com/TahaIbrahimSiddiqui/AdminLineageAI/issues).
+
+The most useful issue reports include:
+
+- the package version, for example `adminlineage.__version__`
+- whether you used the Python API, CLI, or one of the notebooks
+- the model name and the main matching settings, especially `exact_match`, `string_exact_match_prune`, `batch_size`, `max_candidates`, and `enable_google_search`
+- whether the run was fresh, resumed from an existing output directory, or reused replay artifacts
+- a small sanitized input example that reproduces the problem
+- the relevant rows from `evolution_key.csv` or `review_queue.csv`
+- `run_metadata.json`, and when relevant `links_raw.jsonl`, `grounding_notes.jsonl`, and `second_stage_results.jsonl`
+- the traceback or log excerpt if the run failed
+
+If the issue is about a wrong or missing administrative match, it helps to include the exact district names you expected to align, the exact scope columns used, and whether the disagreement is a spelling difference, a rename, a merge, a split, or something else.
+
 ## Citation
 
-If you use AdminLineageAI in published work, please cite:
+If you use AdminLineageAI in published work, please cite the package and briefly report the workflow you used.
 
-Siddiqui, T. I., and Vetharenian H. Tariq A.
+Suggested software citation:
+
+Siddiqui, T. I., and Vetharenian Hari. (2026). *AdminLineageAI* (Version 0.2.0) [Python package]. [https://pypi.org/project/adminlineage/](https://pypi.org/project/adminlineage/)
+
+If the workflow matters for interpretation, report the key settings in your methods or appendix:
+
+- country and time span
+- administrative level and exact-match scope
+- `string_exact_match_prune` mode
+- Gemini model name
+- whether Google Search grounding was enabled
+- whether the bounded second-stage rescue pass was active
+- whether outputs were manually reviewed or corrected
