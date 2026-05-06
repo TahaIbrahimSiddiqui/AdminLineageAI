@@ -618,3 +618,12 @@ If the workflow matters for interpretation, report the key settings in your meth
 - whether Google Search grounding was enabled
 - whether the bounded second-stage rescue pass was active
 - whether outputs were manually reviewed or corrected
+
+## ☕ Support My Work: Buy Me a Coffee or Chai! 🍵  
+
+If you enjoy what I’m doing and would like me to continue making such **public data goods**, you can encourage me by **buying me a coffee or chai**!  
+
+- **For people abroad**, you can support me [here](https://ko-fi.com/tahaibrahim)  
+- **For people in India** who prefer the ease of UPI, use this [link](https://onlychai.neocities.org/support.html?name=Taha%20Ibrahim%20Siddiqui&upi=taha.i.siddiq-1%40okhdfcbank)  
+
+Every little bit helps me keep exploring, analyzing, and sharing valuable insights. Thank you for your support! 🚀
