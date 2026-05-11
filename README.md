@@ -1,6 +1,6 @@
 # AdminLineageAI
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) [![PyPI Downloads](https://static.pepy.tech/personalized-badge/adminlineage?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/adminlineage)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) [![PyPI Downloads](https://static.pepy.tech/personalized-badge/adminlineage?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/adminlineage) [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20126370.svg)](https://doi.org/10.5281/zenodo.20126370)
 
 AdminLineageAI makes crosswalks between administrative locations such as districts (ADM2), subdistricts (ADM3), states (ADM1), and countries (ADM0) across datasets that may come from completely different sources and different periods. It uses AI to compare likely matches, reason over spelling variants and language-specific forms, administrative split/merges/renames and produce a usable crosswalk plus review artifacts.
 
@@ -609,7 +609,18 @@ If you use AdminLineageAI in published work, please cite the package and briefly
 
 Suggested software citation:
 
-Siddiqui, T. I., and Vetharenian Hari. (2026). *AdminLineageAI* (Version 0.2.1) [Python package]. [https://pypi.org/project/adminlineage/](https://pypi.org/project/adminlineage/)
+```bibtex
+@software{diff_diff,
+  title = {diff-diff: Difference-in-Differences Causal Inference for Python},
+  author = {Gerber, Isaac},
+  year = {2026},
+  url = {https://github.com/igerber/diff-diff},
+  doi = {10.5281/zenodo.19646175},
+  license = {MIT},
+}
+```
+
+The DOI above is the Zenodo concept DOI - it always resolves to the latest release. To cite a specific version, look up its versioned DOI on [the Zenodo project page](https://doi.org/10.5281/zenodo.20126370).
 
 If the workflow matters for interpretation, report the key settings in your methods or appendix:
 
