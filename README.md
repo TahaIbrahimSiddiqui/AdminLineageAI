@@ -1,5 +1,7 @@
 # AdminLineageAI
 
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/adminlineage?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/adminlineage)
+
 AdminLineageAI makes crosswalks between administrative locations such as districts (ADM2), subdistricts (ADM3), states (ADM1), and countries (ADM0) across datasets that may come from completely different sources and different periods. It uses AI to compare likely matches, reason over spelling variants and language-specific forms, administrative split/merges/renames and produce a usable crosswalk plus review artifacts.
 
 Matching administrative units by hand is labour-intensive work. Through this package, we hope to reduce the manual work of matching administrative units between datasets while still keeping a clear review trail and reproducibility.
