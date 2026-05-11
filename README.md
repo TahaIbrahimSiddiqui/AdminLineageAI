@@ -610,7 +610,7 @@ If you use AdminLineageAI in published work, please cite the package and briefly
 Suggested software citation:
 
 ```bibtex
-@software{diff_diff,
+@software{AdminlineageAI,
   title = {AdminLineageAI},
   author = {taha, . ibrahim ., Vetharenian, H., & Tariq, A.},
   year = {2026},
