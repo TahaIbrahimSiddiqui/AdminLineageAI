@@ -611,15 +611,14 @@ Suggested software citation:
 
 ```bibtex
 @software{diff_diff,
-  title = {diff-diff: Difference-in-Differences Causal Inference for Python},
-  author = {Gerber, Isaac},
+  title = {AdminLineageAI},
+  author = {taha, . ibrahim ., Vetharenian, H., & Tariq, A.},
   year = {2026},
-  url = {https://github.com/igerber/diff-diff},
-  doi = {10.5281/zenodo.19646175},
+  url = {https://github.com/TahaIbrahimSiddiqui/AdminLineageAI},
+  doi = {10.5281/zenodo.20126370},
   license = {MIT},
 }
 ```
-
 The DOI above is the Zenodo concept DOI - it always resolves to the latest release. To cite a specific version, look up its versioned DOI on [the Zenodo project page](https://doi.org/10.5281/zenodo.20126370).
 
 If the workflow matters for interpretation, report the key settings in your methods or appendix:
