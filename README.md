@@ -100,7 +100,7 @@ crosswalk_df, metadata = adminlineage.build_evolution_key(
     string_exact_match_prune="from",
     evidence=False,
     reason=False,
-    model="gemini-3.1-flash-preview",
+    model="gemini-3.1-flash-lite",
     gemini_api_key_env="GEMINI_API_KEY",
     replay_enabled=True,
     seed=42,
@@ -246,7 +246,7 @@ Optional arguments:
 | `string_exact_match_prune` | `str` | `none` | `none` keeps exact-string hits in later AI work, `from` removes matched source rows from AI work, `to` removes matched source and target rows from later AI work. |
 | `evidence` | `bool` | `False` | Adds a short evidence summary and includes the `evidence` column. |
 | `reason` | `bool` | `False` | Adds a longer explanation in the `reason` column. |
-| `model` | `str` | `gemini-3.1-flash-lite-preview` | Gemini model name. |
+| `model` | `str` | `gemini-3.1-flash-lite` | Gemini model name. |
 | `gemini_api_key_env` | `str` | `GEMINI_API_KEY` | Environment variable name used for the API key. |
 | `batch_size` | `int` | `5` | Maximum number of source rows per Gemini request. When a multi-row request fails, the pipeline retries in smaller batches. |
 | `max_candidates` | `int` | `6` | Candidate shortlist size per source row. |
@@ -424,7 +424,7 @@ For file mode, `data.from_path` and `data.to_path` are resolved relative to the 
 | Key | Default | Meaning |
 |---|---|---|
 | `provider` | `gemini` | Use `gemini` for live runs or `mock` for dry runs and testing. |
-| `model` | `gemini-3.1-flash-lite-preview` | Gemini model name. |
+| `model` | `gemini-3.1-flash-lite` | Gemini model name. |
 | `gemini_api_key_env` | `GEMINI_API_KEY` | Environment variable name for the API key. |
 | `temperature` | `0.75` | Gemini temperature. |
 | `seed` | `42` | Deterministic seed. |
@@ -496,7 +496,7 @@ data:
 
 llm:
   provider: gemini
-  model: gemini-3.1-flash-lite-preview
+  model: gemini-3.1-flash-lite
   gemini_api_key_env: GEMINI_API_KEY
   temperature: 0.75
   seed: 42
@@ -577,7 +577,7 @@ output:
 
 ## A Few Practical Defaults
 
-- `model="gemini-3.1-flash-lite-preview"`
+- `model="gemini-3.1-flash-lite"`
 - `temperature=0.75`
 - `enable_google_search=True`
 - `evidence=False`

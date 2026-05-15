@@ -19,7 +19,7 @@ data:
 
 llm:
   provider: mock
-  model: gemini-3.1-flash-lite-preview
+  model: gemini-3.1-flash-lite
   gemini_api_key_env: GEMINI_API_KEY
   temperature: 0.75
   seed: 42

@@ -42,7 +42,7 @@ class MappingRequest(BaseModel):
     string_exact_match_prune: ExactStringPruneMode = "none"
     evidence: bool = False
     reason: bool = False
-    model: str = "gemini-3.1-flash-lite-preview"
+    model: str = "gemini-3.1-flash-lite"
     batch_size: int = 5
     max_candidates: int = 6
     seed: int = 42

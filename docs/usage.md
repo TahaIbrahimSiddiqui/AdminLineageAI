@@ -27,7 +27,7 @@ Common optional arguments:
 | `relationship` | `str` | `auto` | Relationship mode |
 | `evidence` | `bool` | `False` | Ask the model for a short factual summary and include the `evidence` column |
 | `reason` | `bool` | `False` | Ask the model for a fuller explanation |
-| `model` | `str` | `gemini-3.1-flash-lite-preview` | Gemini model |
+| `model` | `str` | `gemini-3.1-flash-lite` | Gemini model |
 | `gemini_api_key_env` | `str` | `GEMINI_API_KEY` | Environment variable name for the API key |
 | `batch_size` | `int` | `5` | Maximum number of source rows per Gemini request. Failed multi-row requests are retried in smaller batches |
 | `max_candidates` | `int` | `6` | Candidate shortlist size |

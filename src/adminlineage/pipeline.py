@@ -729,7 +729,7 @@ def run_pipeline(
     string_exact_match_prune: ExactStringPruneMode = "none",
     evidence: bool = False,
     reason: bool = False,
-    model: str = "gemini-3.1-flash-lite-preview",
+    model: str = "gemini-3.1-flash-lite",
     gemini_api_key_env: str = "GEMINI_API_KEY",
     batch_size: int = 5,
     max_candidates: int = 6,

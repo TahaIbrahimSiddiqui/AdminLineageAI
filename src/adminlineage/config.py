@@ -58,7 +58,7 @@ class LLMConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: Literal["gemini", "mock"] = "gemini"
-    model: str = "gemini-3.1-flash-lite-preview"
+    model: str = "gemini-3.1-flash-lite"
     gemini_api_key_env: str = "GEMINI_API_KEY"
     temperature: float = 0.75
     seed: int = 42

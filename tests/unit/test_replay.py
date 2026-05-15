@@ -21,7 +21,7 @@ def _build_identity(
         "relationship": "auto",
         "string_exact_match_prune": "from",
         "reason": False,
-        "model": "gemini-3.1-flash-lite-preview",
+        "model": "gemini-3.1-flash-lite",
         "batch_size": 10,
         "max_candidates": 5,
         "seed": 42,
